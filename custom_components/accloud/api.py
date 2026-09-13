@@ -105,6 +105,19 @@ class AccCloudClient:
             state,
         )
 
+    async def async_set_location_state(
+        self,
+        session: aiohttp.ClientSession,
+        location_id: str,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply a partial control state to all online devices in one location."""
+        return await self._async_post_json(
+            session,
+            f"/api/admin/locations/{quote(str(location_id), safe='')}/commands/state",
+            state,
+        )
+
     async def _async_get_json(
         self,
         session: aiohttp.ClientSession,

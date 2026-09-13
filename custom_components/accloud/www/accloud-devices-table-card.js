@@ -623,7 +623,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       button.addEventListener("click", () => this._showDetails(rows[Number(button.dataset.details)]));
     }
     for (const button of this.shadowRoot.querySelectorAll("button[data-control]")) {
-      button.addEventListener("click", () => this._showControl(rows[Number(button.dataset.control)]));
+      button.addEventListener("click", () => this._showRowControl(rows[Number(button.dataset.control)]));
     }
     this._hydrateTimeToggles(this.shadowRoot);
   }
@@ -635,8 +635,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _mobileRow(row, index, defs, columns) {
     const main = this._rowTitle(row);
-    const mainHtml = this._deviceId(row)
-      ? `<button class="room-control mobile-room-control" type="button" data-control="${index}" title="Control ${this._escape(main)}">${this._escape(main)}</button>`
+    const mainHtml = this._rowHasControl(row)
+      ? this._rowControlButton(row, index, main, "mobile-room-control")
       : `<strong>${this._escape(main)}</strong>`;
     const fields = columns.filter((key) => key !== "details").slice(0, 6);
     return `
@@ -730,7 +730,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (!row) return;
     const body = this._columnDefs()
       .filter((col) => col.key !== "details")
-      .map((col) => `<div>${this._escape(col.label)}</div><div>${col.key === "room" ? this._cellHtml(row, "room") : col.render(row)}</div>`)
+      .map((col) => `<div>${this._escape(col.label)}</div><div>${this._detailsCellHtml(row, col)}</div>`)
       .join("");
     this._showDialog(this._rowTitle(row) || "Details", `<div class="details">${body}</div>`);
     this._hydrateTimeToggles(this._activeDialog);
@@ -758,7 +758,15 @@ class AccCloudDevicesTableCard extends HTMLElement {
     }
   }
 
-  _controlFormHtml(state) {
+  _detailsCellHtml(row, col) {
+    return col.key === "room" ? this._cellHtml(row, "room") : col.render(row);
+  }
+
+  _showRowControl(row) {
+    this._showControl(row);
+  }
+
+  _controlFormHtml(state, options = {}) {
     const draft = this._controlDraft(state);
     const status = [
       state.powerText || this._labelFor("power", draft.power),
@@ -789,13 +797,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
           <label><span>Air direction</span><select name="swing">${this._optionsHtml(this._swingOptions(), draft.swing)}</select></label>
         </div>
         <div class="control-actions">
-          <span class="control-message" data-control-message>Draft is sent only when you press Apply.</span>
-          <button class="control-apply" type="submit">Apply</button>
+          <span class="control-message" data-control-message>${this._escape(options.message || "Draft is sent only when you press Apply.")}</span>
+          <button class="control-apply" type="submit">${this._escape(options.applyLabel || "Apply")}</button>
         </div>
       </form>`;
   }
 
-  _attachControlHandlers(row) {
+  _attachControlHandlers(row, applyHandler = (targetRow, form) => this._applyControlState(targetRow, form)) {
     const form = this._activeDialog?.querySelector("[data-control-form]");
     if (!form) return;
     const sync = () => this._syncControlForm(form);
@@ -814,7 +822,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      this._applyControlState(row, form);
+      applyHandler(row, form);
     });
     sync();
   }
@@ -1063,12 +1071,20 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _roomButton(row, index) {
     const label = this._cellText(row, "room") || this._cellText(row, "device") || "Control";
-    if (!this._deviceId(row)) return this._escape(label);
-    return `<button class="room-control" type="button" data-control="${index}" title="Control ${this._escape(label)}">${this._escape(label)}</button>`;
+    return this._rowHasControl(row) ? this._rowControlButton(row, index, label) : this._escape(label);
   }
 
   _detailsButton(index) {
     return `<button class="icon-button" type="button" data-details="${index}" title="More">More</button>`;
+  }
+
+  _rowHasControl(row) {
+    return Boolean(this._deviceId(row));
+  }
+
+  _rowControlButton(row, index, label, extraClass = "") {
+    const className = ["room-control", extraClass].filter(Boolean).join(" ");
+    return `<button class="${this._escape(className)}" type="button" data-control="${index}" title="Control ${this._escape(label)}">${this._escape(label)}</button>`;
   }
 
   _deviceId(row) {
