@@ -90,7 +90,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ["details", "More", (_row, index) => this._detailsButton(index), () => ""],
       ["location", "Location"],
       ["remark", "Remark"],
-      ["room", "Room"],
+      ["room", "Room", (row, index) => this._roomButton(row, index)],
       ["device", "Device"],
       ["firmware", "FW"],
       ["online", "Online"],
@@ -487,6 +487,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
       .mobile-sort-dir { flex: 0 0 42px; min-width: 42px; padding: 0; }
       input:not([type="checkbox"]), select, button { background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 6px; color: var(--primary-text-color); min-height: 32px; padding: 0 8px; }
       button { cursor: pointer; }
+      .room-control { background: transparent; border: 0; color: var(--primary-color); font: inherit; min-height: 0; padding: 0; text-align: left; }
+      .room-control:hover, .room-control:focus { text-decoration: underline; }
+      .mobile-room-control { font-weight: 650; }
       a { color: var(--primary-color); text-decoration: none; }
       .meta, #page-info, .muted { color: var(--secondary-text-color); font-size: 12px; }
       .options { position: relative; }
@@ -619,6 +622,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
     for (const button of this.shadowRoot.querySelectorAll("button[data-details]")) {
       button.addEventListener("click", () => this._showDetails(rows[Number(button.dataset.details)]));
     }
+    for (const button of this.shadowRoot.querySelectorAll("button[data-control]")) {
+      button.addEventListener("click", () => this._showControl(rows[Number(button.dataset.control)]));
+    }
     this._hydrateTimeToggles(this.shadowRoot);
   }
 
@@ -629,11 +635,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _mobileRow(row, index, defs, columns) {
     const main = this._rowTitle(row);
+    const mainHtml = this._deviceId(row)
+      ? `<button class="room-control mobile-room-control" type="button" data-control="${index}" title="Control ${this._escape(main)}">${this._escape(main)}</button>`
+      : `<strong>${this._escape(main)}</strong>`;
     const fields = columns.filter((key) => key !== "details").slice(0, 6);
     return `
       <div class="mobile-row">
         <div class="mobile-main">
-          <strong>${this._escape(main)}</strong>
+          ${mainHtml}
           ${this._detailsButton(index)}
         </div>
         <div class="mobile-fields">
@@ -721,10 +730,213 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (!row) return;
     const body = this._columnDefs()
       .filter((col) => col.key !== "details")
-      .map((col) => `<div>${this._escape(col.label)}</div><div>${col.render(row)}</div>`)
+      .map((col) => `<div>${this._escape(col.label)}</div><div>${col.key === "room" ? this._cellHtml(row, "room") : col.render(row)}</div>`)
       .join("");
     this._showDialog(this._rowTitle(row) || "Details", `<div class="details">${body}</div>`);
     this._hydrateTimeToggles(this._activeDialog);
+  }
+
+  async _showControl(row) {
+    const deviceId = this._deviceId(row);
+    if (!deviceId) return;
+    const title = this._rowTitle(row) || "Control";
+    const overlay = this._showDialog(title, `<p class="muted">Loading control state...</p>`, { kind: "control", maxWidth: 480 });
+    try {
+      const entryId = await this._entryId();
+      if (!entryId) throw new Error(this._error || "No AccCloud integration entry is available.");
+      const state = await this._hass.callWS({
+        type: "accloud/get_device_state",
+        entry_id: entryId,
+        device_id: deviceId,
+      });
+      if (this._activeDialog !== overlay) return;
+      overlay.querySelector("[data-dialog-body]").innerHTML = this._controlFormHtml(state);
+      this._attachControlHandlers(row);
+    } catch (err) {
+      if (this._activeDialog !== overlay) return;
+      overlay.querySelector("[data-dialog-body]").innerHTML = `<p class="control-message is-error">${this._escape(err.message || String(err))}</p>`;
+    }
+  }
+
+  _controlFormHtml(state) {
+    const draft = this._controlDraft(state);
+    const status = [
+      state.powerText || this._labelFor("power", draft.power),
+      state.modeLabel || this._labelFor("mode", draft.mode),
+      state.targetTempLabel ? `${state.targetTempLabel}` : "",
+    ].filter(Boolean).join(" - ");
+    return `
+      <form class="control-form" data-control-form>
+        <div class="control-status">
+          <strong>${this._escape(state.roomTempLabel || "Room --")}</strong>
+          <span class="pill ${state.online ? "ok" : "warn"}">${this._escape(state.onlineText || (state.online ? "online" : "offline"))}</span>
+        </div>
+        <div class="muted">${this._escape(status || "Current state unavailable")}</div>
+        <input type="hidden" name="power" value="${this._escape(draft.power)}">
+        <div>
+          <div class="menu-title">Power</div>
+          <div class="control-power">
+            <button type="button" data-power-option="off">Off</button>
+            <button type="button" data-power-option="on">On</button>
+          </div>
+        </div>
+        <div class="control-grid">
+          <label data-mode-field><span>Mode</span><select name="mode">${this._optionsHtml(this._modeOptions(), draft.mode)}</select></label>
+          <label data-temp-field><span>Set temp</span><select name="targetTempC">${this._tempOptionsHtml(draft.targetTempC)}</select></label>
+          <label data-fan-field><span>Fan</span><select name="fan">${this._optionsHtml(this._fanOptions(), draft.fan)}</select></label>
+          <label data-special-field><span>Special mode</span><select name="special">${this._optionsHtml(this._specialOptions(), draft.special)}</select></label>
+          <label><span>Ion</span><select name="plasmaIon">${this._optionsHtml([["off", "Off"], ["on", "On"]], draft.plasmaIon)}</select></label>
+          <label><span>Air direction</span><select name="swing">${this._optionsHtml(this._swingOptions(), draft.swing)}</select></label>
+        </div>
+        <div class="control-actions">
+          <span class="control-message" data-control-message>Draft is sent only when you press Apply.</span>
+          <button class="control-apply" type="submit">Apply</button>
+        </div>
+      </form>`;
+  }
+
+  _attachControlHandlers(row) {
+    const form = this._activeDialog?.querySelector("[data-control-form]");
+    if (!form) return;
+    const sync = () => this._syncControlForm(form);
+    for (const button of form.querySelectorAll("[data-power-option]")) {
+      button.addEventListener("click", () => {
+        form.elements.power.value = button.dataset.powerOption;
+        sync();
+      });
+    }
+    form.elements.mode.addEventListener("change", sync);
+    form.elements.special.addEventListener("change", () => {
+      if (form.elements.special.value !== "off" && form.elements.mode.value === "cool_plus") {
+        form.elements.mode.value = "cool";
+      }
+      sync();
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      this._applyControlState(row, form);
+    });
+    sync();
+  }
+
+  _syncControlForm(form) {
+    const powered = form.elements.power.value === "on";
+    const mode = form.elements.mode.value;
+    for (const button of form.querySelectorAll("[data-power-option]")) {
+      button.classList.toggle("selected", button.dataset.powerOption === form.elements.power.value);
+    }
+    const tempField = form.querySelector("[data-temp-field]");
+    const modeField = form.querySelector("[data-mode-field]");
+    const fanField = form.querySelector("[data-fan-field]");
+    const specialField = form.querySelector("[data-special-field]");
+    form.elements.mode.disabled = !powered;
+    if (modeField) modeField.classList.toggle("muted", !powered);
+    if (tempField) tempField.hidden = mode === "fan";
+    form.elements.targetTempC.disabled = !powered || mode === "fan";
+    if (mode === "dry") form.elements.fan.value = "auto";
+    form.elements.fan.disabled = !powered || mode === "dry";
+    if (fanField) fanField.classList.toggle("muted", form.elements.fan.disabled);
+    if (mode === "cool_plus") form.elements.special.value = "off";
+    form.elements.special.disabled = !powered || mode === "cool_plus";
+    if (specialField) specialField.classList.toggle("muted", form.elements.special.disabled);
+    form.elements.plasmaIon.disabled = !powered;
+    form.elements.swing.disabled = !powered;
+  }
+
+  async _applyControlState(row, form) {
+    const deviceId = this._deviceId(row);
+    const message = form.querySelector("[data-control-message]");
+    const button = form.querySelector(".control-apply");
+    try {
+      const entryId = await this._entryId();
+      if (!entryId) throw new Error(this._error || "No AccCloud integration entry is available.");
+      button.disabled = true;
+      message.className = "control-message";
+      message.textContent = "Applying...";
+      const result = await this._hass.callWS({
+        type: "accloud/set_device_state",
+        entry_id: entryId,
+        device_id: deviceId,
+        state: this._controlPayload(form),
+      });
+      message.className = "control-message is-ok";
+      message.textContent = result?.requestId ? `Applied. Request ${result.requestId}` : "Applied.";
+      this._scheduleFetch(true);
+    } catch (err) {
+      message.className = "control-message is-error";
+      message.textContent = err.message || String(err);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  _controlPayload(form) {
+    const power = form.elements.power.value === "on" ? "on" : "off";
+    if (power === "off") return { power: "off" };
+    const mode = form.elements.mode.value;
+    const payload = {
+      power: "on",
+      mode: mode === "cool_plus" ? "cool" : mode,
+      fan: mode === "dry" ? "auto" : form.elements.fan.value,
+      merit: mode === "cool_plus" ? "hi_power" : form.elements.special.value,
+      plasmaIon: form.elements.plasmaIon.value,
+      swing: form.elements.swing.value,
+    };
+    if (mode !== "fan") payload.targetTempC = Number(form.elements.targetTempC.value);
+    return payload;
+  }
+
+  _controlDraft(state) {
+    const merit = String(state?.merit || "").toLowerCase();
+    const mode = String(state?.mode || "cool").toLowerCase();
+    const fan = String(state?.fan || "auto").toLowerCase();
+    const swing = String(state?.swing || "off").toLowerCase();
+    const specialValues = new Set(this._specialOptions().map(([value]) => value));
+    const temp = Math.max(17, Math.min(30, Math.round(Number(state?.targetTempC) || 24)));
+    return {
+      power: String(state?.power || "").toLowerCase() === "on" ? "on" : "off",
+      mode: mode === "cool" && merit === "hi_power" ? "cool_plus" : this._validOption(this._modeOptions(), mode, "cool"),
+      targetTempC: String(temp),
+      fan: this._validOption(this._fanOptions(), fan, "auto"),
+      special: specialValues.has(merit) ? merit : "off",
+      plasmaIon: String(state?.plasmaIon || "").toLowerCase() === "on" ? "on" : "off",
+      swing: this._validOption(this._swingOptions(), swing, "off"),
+    };
+  }
+
+  _validOption(options, value, fallback) {
+    return options.some(([option]) => option === value) ? value : fallback;
+  }
+
+  _modeOptions() {
+    return [["cool", "Cool"], ["cool_plus", "Cool+"], ["dry", "Dry"], ["fan", "Fan"], ["auto", "Auto"]];
+  }
+
+  _fanOptions() {
+    return [["auto", "Auto"], ["quiet", "Quiet"], ["low", "Low"], ["low_plus", "Low+"], ["medium", "Med"], ["medium_plus", "Med+"], ["high", "High"]];
+  }
+
+  _specialOptions() {
+    return [["off", "Off"], ["eco", "Eco"], ["outdoor_silent_1", "Silent 1"], ["outdoor_silent_2", "Silent 2"]];
+  }
+
+  _swingOptions() {
+    return [["off", "Off"], ["vertical", "Up / Down"], ["horizontal", "Left / Right"], ["both", "All directions"], ["hada", "Comfort"], ["fixed_1", "Position 1"], ["fixed_2", "Position 2"], ["fixed_3", "Position 3"], ["fixed_4", "Position 4"], ["fixed_5", "Position 5"]];
+  }
+
+  _optionsHtml(options, selected) {
+    return options.map(([value, label]) => `<option value="${this._escape(value)}" ${value === selected ? "selected" : ""}>${this._escape(label)}</option>`).join("");
+  }
+
+  _tempOptionsHtml(selected) {
+    const options = [];
+    for (let value = 17; value <= 30; value += 1) options.push([String(value), `${value} C`]);
+    return this._optionsHtml(options, String(selected));
+  }
+
+  _labelFor(kind, value) {
+    const options = kind === "mode" ? this._modeOptions() : [["off", "Off"], ["on", "On"]];
+    return options.find(([option]) => option === value)?.[1] || value;
   }
 
   _clearFilters() {
@@ -784,6 +996,20 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .column-panel input[type="checkbox"] { flex: 0 0 auto; height: 16px; margin: 0; width: 16px; }
         .dialog-actions { margin-top: 10px; }
         .menu-button { width: 100%; }
+        .control-form { display: grid; gap: 12px; }
+        .control-status { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+        .control-status strong { font-size: 16px; }
+        .control-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .control-grid label { display: grid; font-size: 12px; gap: 4px; }
+        .control-grid label span { color: var(--secondary-text-color, #666); }
+        .control-grid select { width: 100%; }
+        .control-power { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .control-power button.selected { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }
+        .control-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+        .control-message { color: var(--secondary-text-color, #666); flex: 1 1 auto; font-size: 12px; min-width: 140px; }
+        .control-message.is-error { color: #cf222e; }
+        .control-message.is-ok { color: #1a7f37; }
+        .control-apply { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); min-width: 96px; }
         a { color: var(--primary-color); text-decoration: none; }
         .muted { color: var(--secondary-text-color); }
         .mono { font-family: var(--code-font-family, monospace); }
@@ -798,6 +1024,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
           .accloud-dialog { padding-top: 4vh; }
           .accloud-dialog-card { max-height: 88vh; max-width: none; width: calc(100vw - 20px); }
           .details { grid-template-columns: 1fr; }
+          .control-grid { grid-template-columns: 1fr; }
           .column-panel { gap: 10px; }
           .column-panel label { font-size: 15px; }
           .column-panel input[type="checkbox"] { height: 20px; width: 20px; }
@@ -808,7 +1035,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
           <strong>${this._escape(title)}</strong>
           <button data-close type="button">Close</button>
         </div>
-        ${body}
+        <div data-dialog-body>${body}</div>
       </div>`;
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) this._closeDialog();
@@ -816,6 +1043,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     overlay.querySelector("[data-close]").addEventListener("click", () => this._closeDialog());
     document.body.appendChild(overlay);
     this._activeDialog = overlay;
+    return overlay;
   }
 
   _closeDialog() {
@@ -833,8 +1061,18 @@ class AccCloudDevicesTableCard extends HTMLElement {
     }, this._config.search_debounce_ms);
   }
 
+  _roomButton(row, index) {
+    const label = this._cellText(row, "room") || this._cellText(row, "device") || "Control";
+    if (!this._deviceId(row)) return this._escape(label);
+    return `<button class="room-control" type="button" data-control="${index}" title="Control ${this._escape(label)}">${this._escape(label)}</button>`;
+  }
+
   _detailsButton(index) {
     return `<button class="icon-button" type="button" data-details="${index}" title="More">More</button>`;
+  }
+
+  _deviceId(row) {
+    return String(row?.id || row?.deviceId || this._cellValue(row, "device") || "").trim();
   }
 
   _cell(row, key) {

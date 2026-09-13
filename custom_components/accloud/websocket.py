@@ -18,6 +18,8 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register AccCloud websocket commands."""
     websocket_api.async_register_command(hass, websocket_get_entries)
     websocket_api.async_register_command(hass, websocket_get_devices)
+    websocket_api.async_register_command(hass, websocket_get_device_state)
+    websocket_api.async_register_command(hass, websocket_set_device_state)
     websocket_api.async_register_command(hass, websocket_get_locations)
 
 
@@ -85,6 +87,78 @@ async def websocket_get_locations(
     await _send_table(hass, connection, msg, "locations", "locations")
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "accloud/get_device_state",
+        vol.Required("entry_id"): str,
+        vol.Required("device_id"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_get_device_state(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the current control state for one AccCloud device."""
+    client = _client_for_entry(hass, msg["entry_id"])
+    if client is None:
+        connection.send_error(msg["id"], "not_found", "Unknown AccCloud config entry")
+        return
+    try:
+        result = await client.async_device_state(
+            async_get_clientsession(hass),
+            msg["device_id"],
+        )
+    except AuthenticationError:
+        connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")
+        return
+    except UnexpectedResponse as err:
+        connection.send_error(msg["id"], "request_failed", str(err))
+        return
+    except Exception as err:
+        connection.send_error(msg["id"], "unknown_error", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "accloud/set_device_state",
+        vol.Required("entry_id"): str,
+        vol.Required("device_id"): str,
+        vol.Required("state"): dict,
+    }
+)
+@websocket_api.async_response
+async def websocket_set_device_state(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Apply a draft control state to one AccCloud device."""
+    client = _client_for_entry(hass, msg["entry_id"])
+    if client is None:
+        connection.send_error(msg["id"], "not_found", "Unknown AccCloud config entry")
+        return
+    try:
+        result = await client.async_set_device_state(
+            async_get_clientsession(hass),
+            msg["device_id"],
+            msg["state"],
+        )
+    except AuthenticationError:
+        connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")
+        return
+    except UnexpectedResponse as err:
+        connection.send_error(msg["id"], "request_failed", str(err))
+        return
+    except Exception as err:
+        connection.send_error(msg["id"], "unknown_error", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
 async def _send_table(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
@@ -93,7 +167,7 @@ async def _send_table(
     response_key: str,
 ) -> None:
     """Fetch and send one table response."""
-    client = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
+    client = _client_for_entry(hass, msg["entry_id"])
     if client is None:
         connection.send_error(msg["id"], "not_found", "Unknown AccCloud config entry")
         return
@@ -125,3 +199,8 @@ async def _send_table(
             **{key: value for key, value in result.items() if key != "rows"},
         },
     )
+
+
+def _client_for_entry(hass: HomeAssistant, entry_id: str):
+    """Return the AccCloud client for a loaded config entry."""
+    return hass.data.get(DOMAIN, {}).get(entry_id)

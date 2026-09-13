@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import aiohttp
 
@@ -80,6 +80,31 @@ class AccCloudClient:
         )
         return _normalize_table_payload(payload)
 
+    async def async_device_state(
+        self,
+        session: aiohttp.ClientSession,
+        device_id: str,
+    ) -> dict[str, Any]:
+        """Fetch the current AccCloud control state for one device."""
+        return await self._async_get_json(
+            session,
+            f"/api/devices/{quote(device_id, safe='')}/state",
+            {},
+        )
+
+    async def async_set_device_state(
+        self,
+        session: aiohttp.ClientSession,
+        device_id: str,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply a partial control state to one AccCloud device."""
+        return await self._async_post_json(
+            session,
+            f"/api/devices/{quote(device_id, safe='')}/commands/state",
+            state,
+        )
+
     async def _async_get_json(
         self,
         session: aiohttp.ClientSession,
@@ -113,6 +138,39 @@ class AccCloudClient:
         if not isinstance(payload, dict):
             raise UnexpectedResponse("AccCloud returned non-object JSON")
         return payload
+
+    async def _async_post_json(
+        self,
+        session: aiohttp.ClientSession,
+        path: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        try:
+            async with session.post(
+                url,
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {self.token}",
+                },
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
+            ) as response:
+                if response.status in {401, 403}:
+                    raise AuthenticationError("AccCloud rejected the bearer token")
+                if response.status != 200:
+                    text = await response.text(errors="replace")
+                    raise UnexpectedResponse(
+                        f"AccCloud HTTP {response.status}: {text[:200]}"
+                    )
+                response_payload = await response.json(content_type=None)
+        except TimeoutError as err:
+            raise UnexpectedResponse("AccCloud request timed out") from err
+        except aiohttp.ClientError as err:
+            raise UnexpectedResponse(f"AccCloud request failed: {err}") from err
+        if not isinstance(response_payload, dict):
+            raise UnexpectedResponse("AccCloud returned non-object JSON")
+        return response_payload
 
     def _table_params(
         self,
