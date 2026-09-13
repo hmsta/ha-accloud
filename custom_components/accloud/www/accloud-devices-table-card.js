@@ -835,22 +835,33 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _cellValue(row, key) {
     const cell = this._cell(row, key);
-    return cell?.value ?? "";
+    return cell?.value ?? cell?.text ?? "";
   }
 
   _cellText(row, key) {
     const cell = this._cell(row, key);
-    return String(cell?.value || cell?.label || "").trim();
+    return this._cellDisplayText(cell).trim();
   }
 
   _cellHtml(row, key) {
     const cell = this._cell(row, key);
+    return this._renderCell(cell);
+  }
+
+  _renderCell(cell) {
     if (!cell) return "";
-    return this._rewriteCellHtml(cell.html || this._escape(cell.value));
+    if (cell.time || cell.kind === "time") return this._timeCellFromCell(cell);
+    if (cell.badge || cell.kind === "badge") return this._badgeCellHtml(cell);
+    if (cell.kind === "identity") return this._identityCellHtml(cell);
+    if (cell.kind === "actions") return this._actionsCellHtml(cell);
+    if (cell.kind === "button") return this._buttonCellHtml(cell);
+    if (cell.kind === "checkbox") return this._checkboxCellHtml(cell);
+    if (cell.html && !cell.kind && cell.text == null) return this._legacyCellHtml(cell.html);
+    return this._textCellHtml(cell);
   }
 
   _cellClass(row, key) {
-    const classes = new Set(String(this._cell(row, key)?.class || "").split(/\s+/).filter(Boolean));
+    const classes = new Set(this._safeClasses(this._cell(row, key)?.class).split(/\s+/).filter(Boolean));
     if (this._rightAlignedColumns().has(key)) classes.add("align-right");
     return Array.from(classes).join(" ");
   }
@@ -861,8 +872,22 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _timeCellHtml(row, key) {
     const cell = this._cell(row, key);
+    return this._timeCellFromCell(cell);
+  }
+
+  _timeCellFromCell(cell) {
     if (!cell) return "";
-    const html = this._rewriteCellHtml(cell.html || this._escape(cell.value));
+    if (cell.time) {
+      const relative = String(cell.time.relative || cell.text || "never");
+      const absolute = String(cell.time.absolute || relative);
+      const unix = Number(cell.time.unix || 0);
+      const classes = ["admin-time-toggle"];
+      if (cell.muted) classes.push("muted");
+      if (!Number.isFinite(unix) || unix <= 0) return this._textCellHtml(cell);
+      return `<time class="${this._escape(classes.join(" "))}" tabindex="0" role="button" title="Click to toggle exact local time" data-admin-time-toggle data-relative-time="${this._escape(relative)}" data-absolute-time="${this._escape(absolute)}">${this._escape(relative)}</time>`;
+    }
+    if (!cell.html && !cell.value) return this._textCellHtml(cell);
+    const html = cell.html ? this._legacyCellHtml(cell.html) : this._textCellHtml(cell);
     if (html.includes("data-admin-time-toggle")) return html;
     const timestamp = Number(cell.value);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return html;
@@ -894,7 +919,59 @@ class AccCloudDevicesTableCard extends HTMLElement {
     return `${years}y ago`;
   }
 
-  _rewriteCellHtml(html) {
+  _textCellHtml(cell) {
+    const text = this._escape(this._cellDisplayText(cell));
+    return cell?.muted ? `<span class="muted">${text}</span>` : text;
+  }
+
+  _identityCellHtml(cell) {
+    const primary = this._textCellHtml(cell);
+    const secondary = String(cell.secondary || "").trim();
+    if (!secondary) return primary;
+    return `${primary} <span class="muted">${this._escape(secondary)}</span>`;
+  }
+
+  _badgeCellHtml(cell) {
+    const badge = cell.badge || {};
+    const text = this._escape(String(badge.text ?? this._cellDisplayText(cell)));
+    const classes = ["pill", this._safeClasses(badge.class), cell.muted ? "muted" : ""].filter(Boolean).join(" ");
+    return `<span class="${this._escape(classes)}">${text}</span>`;
+  }
+
+  _actionsCellHtml(cell) {
+    const actions = Array.isArray(cell.actions) ? cell.actions : [];
+    const labels = actions.map((action) => this._actionLabel(action)).filter(Boolean);
+    if (!labels.length) return this._textCellHtml(cell);
+    return `<span class="muted">${labels.map((label) => this._escape(label)).join(", ")}</span>`;
+  }
+
+  _buttonCellHtml(cell) {
+    const label = this._actionLabel(cell.button) || this._cellDisplayText(cell);
+    return label ? `<span class="muted">${this._escape(label)}</span>` : "";
+  }
+
+  _checkboxCellHtml(cell) {
+    return this._escape(String(cell.checkbox?.ariaLabel || cell.value || ""));
+  }
+
+  _actionLabel(action) {
+    if (!action || typeof action !== "object") return "";
+    return String(action.label || action.title || action.ariaLabel || "").trim();
+  }
+
+  _cellDisplayText(cell) {
+    if (!cell) return "";
+    return String(cell.text ?? cell.value ?? cell.label ?? "");
+  }
+
+  _safeClasses(value) {
+    return String(value || "")
+      .split(/\s+/)
+      .filter((item) => /^[A-Za-z0-9_-]+$/.test(item))
+      .join(" ");
+  }
+
+  _legacyCellHtml(html) {
     const template = document.createElement("template");
     template.innerHTML = String(html || "");
     for (const link of template.content.querySelectorAll("a")) {
@@ -904,8 +981,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
       link.replaceWith(text);
     }
     for (const button of template.content.querySelectorAll("button")) {
-      button.disabled = true;
-      button.title = button.title || "Action unavailable in Home Assistant";
+      const text = document.createElement("span");
+      text.className = button.className || "";
+      text.textContent = button.textContent || button.title || button.getAttribute("aria-label") || "";
+      button.replaceWith(text);
     }
     return template.innerHTML;
   }

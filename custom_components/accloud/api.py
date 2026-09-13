@@ -66,15 +66,6 @@ class AccCloudClient:
             "devices": "/api/admin/devices",
             "locations": "/api/admin/locations",
         }[table]
-        if page_size <= 0:
-            return await self._async_all_table_rows(
-                session,
-                path,
-                search=search,
-                sort_key=sort_key,
-                sort_dir=sort_dir,
-                filters=filters,
-            )
         payload = await self._async_get_json(
             session,
             path,
@@ -88,55 +79,6 @@ class AccCloudClient:
             ),
         )
         return _normalize_table_payload(payload)
-
-    async def _async_all_table_rows(
-        self,
-        session: aiohttp.ClientSession,
-        path: str,
-        *,
-        search: str,
-        sort_key: str,
-        sort_dir: int,
-        filters: dict[str, Any],
-    ) -> dict[str, Any]:
-        first = await self._async_get_json(
-            session,
-            path,
-            self._table_params(
-                page=0,
-                page_size=100,
-                search=search,
-                sort_key=sort_key,
-                sort_dir=sort_dir,
-                filters=filters,
-            ),
-        )
-        result = _normalize_table_payload(first)
-        rows = list(result.get("rows", []))
-        page_count = int(result.get("page_count") or 1)
-        for page in range(1, page_count):
-            payload = await self._async_get_json(
-                session,
-                path,
-                self._table_params(
-                    page=page,
-                    page_size=100,
-                    search=search,
-                    sort_key=sort_key,
-                    sort_dir=sort_dir,
-                    filters=filters,
-                ),
-            )
-            rows.extend(_normalize_table_payload(payload).get("rows", []))
-        result.update(
-            {
-                "rows": rows,
-                "page": 0,
-                "page_size": 0,
-                "page_count": 1,
-            }
-        )
-        return result
 
     async def _async_get_json(
         self,
@@ -182,9 +124,12 @@ class AccCloudClient:
         sort_dir: int,
         filters: dict[str, Any],
     ) -> dict[str, Any]:
+        normalized_page_size = int(page_size)
         params: dict[str, Any] = {
             "page": max(0, int(page)) + 1,
-            "page_size": max(1, min(100, int(page_size))),
+            "page_size": 0
+            if normalized_page_size <= 0
+            else max(1, min(100, normalized_page_size)),
             "sort_key": sort_key,
             "sort_dir": "desc" if sort_dir == -1 else "asc",
         }
@@ -212,4 +157,3 @@ def _normalize_table_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(payload.get("filterOptions"), dict)
         else {},
     }
-
