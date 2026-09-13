@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AccCloud",
+        "description": "Connect to the AccCloud web API.",
+        "data": {
+          "base_url": "Base URL",
+          "token": "Bearer token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to AccCloud.",
+      "invalid_auth": "The bearer token was rejected.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This AccCloud instance is already configured.",
+      "reconfigure_successful": "AccCloud was reconfigured."
+    }
+  }
+}
+
