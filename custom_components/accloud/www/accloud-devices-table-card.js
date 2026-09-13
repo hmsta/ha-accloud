@@ -593,10 +593,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const pageSize = this._activePageSize();
     const start = this._filteredCount === 0 ? 0 : pageSize === 0 ? 1 : this._page * pageSize + 1;
     const end = pageSize === 0 ? this._filteredCount : Math.min(this._filteredCount, start + rows.length - 1);
+    const hasPagination = pageSize !== 0 && this._pageCount > 1;
     this.shadowRoot.getElementById("meta").textContent = `${this._filteredCount} matched of ${this._totalRows}${this._error ? ` - ${this._error}` : ""}`;
-    this.shadowRoot.getElementById("page-info").textContent = pageSize === 0 ? `All ${this._filteredCount}` : `${start}-${end} of ${this._filteredCount}`;
-    this.shadowRoot.getElementById("prev").disabled = this._page <= 0 || pageSize === 0;
-    this.shadowRoot.getElementById("next").disabled = pageSize === 0 || this._page >= this._pageCount - 1;
+    this.shadowRoot.getElementById("page-info").textContent = this._rangeLabel(start, end);
+    this.shadowRoot.getElementById("prev").hidden = !hasPagination;
+    this.shadowRoot.getElementById("next").hidden = !hasPagination;
+    this.shadowRoot.getElementById("prev").disabled = this._page <= 0;
+    this.shadowRoot.getElementById("next").disabled = this._page >= this._pageCount - 1;
     this.shadowRoot.getElementById("clear-filters").hidden = !this._hasActiveFilters();
     const defs = new Map(this._columnDefs().map((col) => [col.key, col]));
     const columns = this._activeColumns();
@@ -617,6 +620,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
       button.addEventListener("click", () => this._showDetails(rows[Number(button.dataset.details)]));
     }
     this._hydrateTimeToggles(this.shadowRoot);
+  }
+
+  _rangeLabel(start, end) {
+    if (!end) return "0";
+    return `${start}-${end}`;
   }
 
   _mobileRow(row, index, defs, columns) {
