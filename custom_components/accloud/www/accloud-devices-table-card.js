@@ -95,6 +95,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ["firmware", "FW"],
       ["online", "Online"],
       ["power", "Power"],
+      ["est_watts", "Est. W"],
       ["mode", "Mode"],
       ["set_temp", "Set Temp"],
       ["room_temp", "Room Temp"],
@@ -115,11 +116,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _defaultColumns() {
-    return ["location", "room", "online", "power", "mode", "set_temp", "room_temp", "last_action", "details"];
+    return ["location", "room", "online", "power", "est_watts", "mode", "set_temp", "room_temp", "last_action", "details"];
   }
 
   _defaultMobileColumns() {
-    return ["location", "room", "online", "power", "mode", "last_action", "details"];
+    return ["location", "room", "online", "power", "est_watts", "mode", "last_action", "details"];
   }
 
   _defaultSortKey() {
@@ -219,8 +220,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return;
       const prefs = JSON.parse(raw);
-      if (Array.isArray(prefs.columns)) this._columns = this._validColumns(prefs.columns, this._defaultColumns());
-      if (Array.isArray(prefs.mobile_columns)) this._mobileColumns = this._validColumns(prefs.mobile_columns, this._defaultMobileColumns());
+      const version = Number(prefs.version || 0);
+      if (Array.isArray(prefs.columns)) {
+        this._columns = this._migrateColumns(this._validColumns(prefs.columns, this._defaultColumns()), version, this._defaultColumns());
+      }
+      if (Array.isArray(prefs.mobile_columns)) {
+        this._mobileColumns = this._migrateColumns(this._validColumns(prefs.mobile_columns, this._defaultMobileColumns()), version, this._defaultMobileColumns());
+      }
       if (Number.isFinite(Number(prefs.page_size))) this._pageSize = Number(prefs.page_size);
       if (Number.isFinite(Number(prefs.mobile_page_size))) this._mobilePageSize = Number(prefs.mobile_page_size);
       if (typeof prefs.sort_key === "string") this._sortKey = prefs.sort_key;
@@ -235,6 +241,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (!this._config.remember_preferences) return;
     try {
       window.localStorage.setItem(this._storageKey(), JSON.stringify({
+        version: this._preferenceVersion(),
         columns: this._columns,
         mobile_columns: this._mobileColumns,
         page_size: this._pageSize,
@@ -246,6 +253,34 @@ class AccCloudDevicesTableCard extends HTMLElement {
     } catch (_) {
       // Browser storage can be unavailable in restricted web views.
     }
+  }
+
+  _preferenceVersion() {
+    return 2;
+  }
+
+  _migrateColumns(columns, version, defaults) {
+    if (version >= 2) return columns;
+    return this._withNewDefaultColumns(columns, defaults, ["est_watts"]);
+  }
+
+  _withNewDefaultColumns(columns, defaults, newKeys) {
+    const merged = columns.filter((key) => key !== "details");
+    for (const key of newKeys) {
+      if (!defaults.includes(key) || merged.includes(key)) continue;
+      const defaultIndex = defaults.indexOf(key);
+      let insertAt = merged.length;
+      for (let i = defaultIndex + 1; i < defaults.length; i += 1) {
+        const existingIndex = merged.indexOf(defaults[i]);
+        if (existingIndex !== -1) {
+          insertAt = existingIndex;
+          break;
+        }
+      }
+      merged.splice(insertAt, 0, key);
+    }
+    merged.push("details");
+    return merged;
   }
 
   _resetPreferences() {
@@ -502,6 +537,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       th button, .icon-button { background: transparent; border: 0; min-height: 0; padding: 0; }
       .mono { font-family: var(--code-font-family, monospace); }
       .numeric, .align-right { text-align: right; }
+      .align-center { text-align: center; }
       .pill { border-radius: 999px; display: inline-block; font-size: 12px; line-height: 1; padding: 4px 8px; }
       .ok { background: rgba(36, 161, 72, 0.14); color: #1a7f37; }
       .warn, .bad { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
@@ -1125,11 +1161,16 @@ class AccCloudDevicesTableCard extends HTMLElement {
   _cellClass(row, key) {
     const classes = new Set(this._safeClasses(this._cell(row, key)?.class).split(/\s+/).filter(Boolean));
     if (this._rightAlignedColumns().has(key)) classes.add("align-right");
+    if (this._centerAlignedColumns().has(key)) classes.add("align-center");
     return Array.from(classes).join(" ");
   }
 
   _rightAlignedColumns() {
-    return new Set(["last_action", "last_activity", "number"]);
+    return new Set(["est_watts", "today", "week", "month", "set_temp", "room_temp", "last_action", "last_activity", "number"]);
+  }
+
+  _centerAlignedColumns() {
+    return new Set(["power", "mode"]);
   }
 
   _timeCellHtml(row, key) {
@@ -1280,7 +1321,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _header(key, label) {
     const suffix = this._sortKey === key ? (this._sortDir === 1 ? " ^" : " v") : "";
-    const className = this._rightAlignedColumns().has(key) ? "align-right" : "";
+    const classes = [];
+    if (this._rightAlignedColumns().has(key)) classes.push("align-right");
+    if (this._centerAlignedColumns().has(key)) classes.push("align-center");
+    const className = classes.join(" ");
     return `<th class="${className}"><button data-key="${this._escape(key)}">${this._escape(label)}${suffix}</button></th>`;
   }
 }

@@ -18,6 +18,7 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
       ["assigned", "Assigned ACs"],
       ["online", "Online ACs"],
       ["on", "On ACs"],
+      ["est_watts", "Est. W"],
       ["today", "Today kWh"],
       ["week", "Week kWh"],
       ["month", "Month kWh"],
@@ -34,11 +35,11 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
   }
 
   _defaultColumns() {
-    return ["number", "name", "remark", "type", "online", "on", "today", "week", "month", "last_activity", "details"];
+    return ["number", "name", "remark", "type", "online", "on", "est_watts", "today", "week", "month", "last_activity", "details"];
   }
 
   _defaultMobileColumns() {
-    return ["number", "name", "online", "on", "today", "last_activity", "details"];
+    return ["number", "name", "online", "on", "est_watts", "today", "last_activity", "details"];
   }
 
   _defaultSortKey() {
