@@ -1386,7 +1386,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
       const meta = [
         row?.createdAt?.label || "",
         this._activityWhere(row, target?.scope),
-        row?.sourceLabel || row?.source || "",
       ].filter(Boolean).join(" - ");
       const change = this._activityChange(row);
       const title = row?.createdAt?.value ? ` title="${this._escape(row.createdAt.value)}"` : "";
@@ -1403,7 +1402,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const house = String(row?.houseName || "").trim();
     const room = String(row?.roomName || "").trim();
     const device = String(row?.deviceLabel || row?.deviceId || "").trim();
-    if (scope === "location") return [room || house, device].filter(Boolean).join(" / ");
+    if (scope === "location") return room || device || house;
     return [house, room].filter(Boolean).join(" / ");
   }
 
