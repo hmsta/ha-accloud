@@ -5,6 +5,8 @@ from __future__ import annotations
 from homeassistant.const import Platform
 
 DOMAIN = "accloud"
+ENTRY_TITLE = "AccCloud"
+ENTRY_UNIQUE_ID = DOMAIN
 
 DEVICES_CARD_URL = "/accloud/accloud-devices-table-card.js"
 DEVICES_CARD_FILENAME = "accloud-devices-table-card.js"

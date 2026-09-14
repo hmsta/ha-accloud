@@ -13,7 +13,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import AuthenticationError, AccCloudClient
-from .const import CONF_BASE_URL, CONF_TOKEN, DOMAIN
+from .const import CONF_BASE_URL, CONF_TOKEN, DOMAIN, ENTRY_TITLE, ENTRY_UNIQUE_ID
 
 
 def _normalize_base_url(value: str) -> str:
@@ -23,12 +23,6 @@ def _normalize_base_url(value: str) -> str:
         text = f"https://{text}"
     parsed = urlsplit(text)
     return urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
-
-
-def _entry_title(base_url: str) -> str:
-    """Return a readable config entry title."""
-    parsed = urlsplit(base_url)
-    return f"AccCloud {parsed.hostname or base_url}"
 
 
 def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -60,6 +54,9 @@ class AccCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
+        if self.hass.config_entries.async_entries(DOMAIN):
+            return self.async_abort(reason="already_configured")
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -67,8 +64,7 @@ class AccCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 **user_input,
                 CONF_BASE_URL: _normalize_base_url(user_input[CONF_BASE_URL]),
             }
-            unique_id = data[CONF_BASE_URL]
-            await self.async_set_unique_id(unique_id)
+            await self.async_set_unique_id(ENTRY_UNIQUE_ID)
             self._abort_if_unique_id_configured()
             try:
                 await _validate_input(self.hass, data)
@@ -78,7 +74,7 @@ class AccCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_create_entry(
-                    title=_entry_title(unique_id),
+                    title=ENTRY_TITLE,
                     data=data,
                 )
 
@@ -106,9 +102,8 @@ class AccCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             }
             data[CONF_BASE_URL] = _normalize_base_url(data[CONF_BASE_URL])
-            unique_id = data[CONF_BASE_URL]
-            if unique_id != entry.unique_id:
-                await self.async_set_unique_id(unique_id)
+            if ENTRY_UNIQUE_ID != entry.unique_id:
+                await self.async_set_unique_id(ENTRY_UNIQUE_ID)
                 self._abort_if_unique_id_configured()
             try:
                 await _validate_input(self.hass, data)
@@ -119,8 +114,8 @@ class AccCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 self.hass.config_entries.async_update_entry(
                     entry,
-                    unique_id=unique_id,
-                    title=_entry_title(unique_id),
+                    unique_id=ENTRY_UNIQUE_ID,
+                    title=ENTRY_TITLE,
                     data=data,
                 )
                 await self.hass.config_entries.async_reload(entry.entry_id)
@@ -131,4 +126,3 @@ class AccCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=_schema(defaults),
             errors=errors,
         )
-

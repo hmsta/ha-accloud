@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, ENTRY_TITLE, ENTRY_UNIQUE_ID
 from .coordinator import AccCloudSummaryCoordinator
 
 
@@ -23,10 +23,9 @@ class AccCloudSummaryEntity(CoordinatorEntity[AccCloudSummaryCoordinator]):
     ) -> None:
         """Initialize the entity."""
         super().__init__(coordinator)
-        instance_id = entry.unique_id or entry.entry_id
-        self._attr_unique_id = f"{instance_id}_{key}"
+        self._attr_unique_id = f"{ENTRY_UNIQUE_ID}_{key}"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, instance_id)},
+            identifiers={(DOMAIN, ENTRY_UNIQUE_ID)},
             manufacturer="AccCloud",
-            name=entry.title,
+            name=ENTRY_TITLE,
         )
