@@ -118,6 +118,17 @@ class AccCloudClient:
             state,
         )
 
+    async def async_summary(self, session: aiohttp.ClientSession) -> dict[str, Any]:
+        """Fetch aggregate values for Home Assistant sensors."""
+        payload = await self._async_get_json(
+            session,
+            "/api/homeassistant/summary",
+            {},
+        )
+        if payload.get("ok") is False:
+            raise UnexpectedResponse("AccCloud summary endpoint returned ok=false")
+        return payload
+
     async def _async_get_json(
         self,
         session: aiohttp.ClientSession,

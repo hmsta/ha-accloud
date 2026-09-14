@@ -19,12 +19,16 @@ from .api import AccCloudClient
 from .const import (
     CONF_BASE_URL,
     CONF_TOKEN,
+    DATA_CLIENT,
+    DATA_COORDINATOR,
     DEVICES_CARD_FILENAME,
     DEVICES_CARD_URL,
     DOMAIN,
     LOCATIONS_CARD_FILENAME,
     LOCATIONS_CARD_URL,
+    PLATFORMS,
 )
+from .coordinator import AccCloudSummaryCoordinator
 from .websocket import async_setup_websocket
 
 _LOGGER = logging.getLogger(__name__)
@@ -133,15 +137,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_setup_websocket(hass)
         _STATIC_REGISTERED = True
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = AccCloudClient(
+    client = AccCloudClient(
         entry.data[CONF_BASE_URL],
         entry.data[CONF_TOKEN],
     )
+    coordinator = AccCloudSummaryCoordinator(hass, entry, client)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        DATA_CLIENT: client,
+        DATA_COORDINATOR: coordinator,
+    }
+    await coordinator.async_refresh()
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an AccCloud config entry."""
-    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    return True
-
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    return unload_ok

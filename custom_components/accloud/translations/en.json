@@ -19,6 +19,32 @@
       "already_configured": "This AccCloud instance is already configured.",
       "reconfigure_successful": "AccCloud was reconfigured."
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      }
+    },
+    "sensor": {
+      "total_acs": {
+        "name": "Total ACs"
+      },
+      "online_acs": {
+        "name": "Online ACs"
+      },
+      "offline_acs": {
+        "name": "Offline ACs"
+      },
+      "on_acs": {
+        "name": "On ACs"
+      },
+      "estimated_power": {
+        "name": "Estimated power"
+      },
+      "energy_today": {
+        "name": "Energy today"
+      }
+    }
   }
 }
-

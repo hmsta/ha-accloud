@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import AuthenticationError, UnexpectedResponse
-from .const import DOMAIN
+from .const import DATA_CLIENT, DOMAIN
 
 
 def async_setup_websocket(hass: HomeAssistant) -> None:
@@ -241,4 +241,7 @@ async def _send_table(
 
 def _client_for_entry(hass: HomeAssistant, entry_id: str):
     """Return the AccCloud client for a loaded config entry."""
-    return hass.data.get(DOMAIN, {}).get(entry_id)
+    entry_data = hass.data.get(DOMAIN, {}).get(entry_id)
+    if isinstance(entry_data, dict):
+        return entry_data.get(DATA_CLIENT)
+    return entry_data

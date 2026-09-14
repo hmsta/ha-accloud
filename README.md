@@ -7,6 +7,14 @@ This integration talks to the AccCloud JSON API with a bearer token. The token i
 stored in the Home Assistant config entry and is never exposed to the frontend
 cards.
 
+## Entities
+
+The integration creates one AccCloud device with summary entities for monitoring
+and Home Assistant history:
+
+- `binary_sensor`: connected
+- `sensor`: total ACs, online ACs, offline ACs, on ACs, estimated power, energy today
+
 ## Installation with HACS
 
 1. Add this repository as a HACS custom repository of type `Integration`.
@@ -59,4 +67,3 @@ entry_id: your_config_entry_id
 
 Use a dedicated AccCloud Home Assistant bearer token. Do not publish real tokens,
 private hostnames, local screenshots, or exported Home Assistant config.
-
