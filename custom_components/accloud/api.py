@@ -92,6 +92,20 @@ class AccCloudClient:
             {},
         )
 
+    async def async_device_activity(
+        self,
+        session: aiohttp.ClientSession,
+        device_id: str,
+        *,
+        limit: int,
+    ) -> dict[str, Any]:
+        """Fetch recent activity for one device."""
+        return await self._async_get_json(
+            session,
+            f"/api/devices/{quote(device_id, safe='')}/detail/activity",
+            {"limit": max(1, min(100, int(limit)))},
+        )
+
     async def async_set_device_state(
         self,
         session: aiohttp.ClientSession,
@@ -116,6 +130,20 @@ class AccCloudClient:
             session,
             f"/api/locations/{quote(str(location_id), safe='')}/commands/state",
             state,
+        )
+
+    async def async_location_activity(
+        self,
+        session: aiohttp.ClientSession,
+        location_id: str,
+        *,
+        limit: int,
+    ) -> dict[str, Any]:
+        """Fetch recent activity for one location."""
+        return await self._async_get_json(
+            session,
+            f"/api/locations/{quote(str(location_id), safe='')}/detail/activity",
+            {"limit": max(1, min(100, int(limit)))},
         )
 
     async def async_summary(self, session: aiohttp.ClientSession) -> dict[str, Any]:

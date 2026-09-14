@@ -544,6 +544,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
       .light { background: rgba(127, 127, 127, 0.14); color: var(--secondary-text-color); }
       .admin-time-toggle { cursor: pointer; }
       .admin-time-toggle:hover, .admin-time-toggle:focus { outline: none; text-decoration: underline; }
+      .activity-time { color: var(--primary-color); cursor: pointer; }
+      .activity-time:hover, .activity-time:focus { outline: none; text-decoration: underline; }
       .actions details { position: relative; }
       .actions summary { cursor: pointer; list-style: none; }
       .actions summary::-webkit-details-marker { display: none; }
@@ -662,6 +664,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       button.addEventListener("click", () => this._showRowControl(rows[Number(button.dataset.control)]));
     }
     this._hydrateTimeToggles(this.shadowRoot);
+    this._hydrateActivityLinks(this.shadowRoot);
   }
 
   _rangeLabel(start, end) {
@@ -770,6 +773,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       .join("");
     this._showDialog(this._rowTitle(row) || "Details", `<div class="details">${body}</div>`);
     this._hydrateTimeToggles(this._activeDialog);
+    this._hydrateActivityLinks(this._activeDialog);
   }
 
   _hiddenDetailsColumns() {
@@ -1063,6 +1067,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .mono { font-family: var(--code-font-family, monospace); }
         .admin-time-toggle { cursor: pointer; }
         .admin-time-toggle:hover, .admin-time-toggle:focus { outline: none; text-decoration: underline; }
+        .activity-time { color: var(--primary-color); cursor: pointer; }
+        .activity-time:hover, .activity-time:focus { outline: none; text-decoration: underline; }
+        .activity-list { display: grid; gap: 10px; }
+        .activity-row { border-bottom: 1px solid var(--divider-color, #ddd); display: grid; gap: 3px; padding-bottom: 10px; }
+        .activity-row:last-child { border-bottom: 0; padding-bottom: 0; }
+        .activity-message { font-weight: 650; line-height: 1.3; }
+        .activity-meta { color: var(--secondary-text-color, #666); font-size: 12px; line-height: 1.35; }
+        .activity-change { font-family: var(--code-font-family, monospace); }
         .pill { border-radius: 999px; display: inline-block; font-size: 12px; line-height: 1; padding: 4px 8px; }
         .ok { background: rgba(36, 161, 72, 0.14); color: #1a7f37; }
         .warn, .bad { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
@@ -1179,7 +1191,52 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _timeCellHtml(row, key) {
     const cell = this._cell(row, key);
+    const target = this._activityTarget(row, key);
+    if (target) return this._activityTimeCellFromCell(cell, target);
     return this._timeCellFromCell(cell);
+  }
+
+  _activityTarget(row, key) {
+    if (key !== "last_action") return null;
+    const id = this._deviceId(row);
+    if (!id) return null;
+    return {
+      scope: "device",
+      id,
+      title: `${this._rowTitle(row) || "Device"} Activity`,
+      wsType: "accloud/get_device_activity",
+      idKey: "device_id",
+    };
+  }
+
+  _activityTimeCellFromCell(cell, target) {
+    const time = this._timeDisplayData(cell);
+    if (!time) return this._timeCellFromCell(cell);
+    const classes = ["activity-time"];
+    if (cell?.muted) classes.push("muted");
+    return `<time class="${this._escape(classes.join(" "))}" datetime="${this._escape(time.iso || "")}" tabindex="0" role="button" title="Open activity log" data-activity-log data-activity-scope="${this._escape(target.scope)}" data-activity-id="${this._escape(target.id)}" data-activity-title="${this._escape(target.title)}" data-activity-ws-type="${this._escape(target.wsType)}" data-activity-id-key="${this._escape(target.idKey)}">${this._escape(time.relative)}</time>`;
+  }
+
+  _timeDisplayData(cell) {
+    if (!cell) return null;
+    if (cell.time) {
+      const unix = Number(cell.time.unix || 0);
+      if (!Number.isFinite(unix) || unix <= 0) return null;
+      return {
+        relative: String(cell.time.relative || cell.text || "never"),
+        absolute: String(cell.time.absolute || cell.time.relative || cell.text || ""),
+        iso: new Date(unix * 1000).toISOString(),
+      };
+    }
+    if (!cell.html && !cell.value) return null;
+    const timestamp = Number(cell.value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+    const html = cell.html ? this._legacyCellHtml(cell.html) : this._textCellHtml(cell);
+    return {
+      relative: this._relativeTime(timestamp * 1000),
+      absolute: this._textFromHtml(html) || new Date(timestamp * 1000).toLocaleString(),
+      iso: new Date(timestamp * 1000).toISOString(),
+    };
   }
 
   _timeCellFromCell(cell) {
@@ -1294,6 +1351,87 @@ class AccCloudDevicesTableCard extends HTMLElement {
       button.replaceWith(text);
     }
     return template.innerHTML;
+  }
+
+  async _showActivityLog(target) {
+    if (!target?.id || !target?.wsType || !target?.idKey) return;
+    const overlay = this._showDialog(target.title || "Activity", `<p class="muted">Loading activity...</p>`, { kind: "activity", maxWidth: 640 });
+    try {
+      const entryId = await this._entryId();
+      if (!entryId) throw new Error(this._error || "No AccCloud integration entry is available.");
+      const msg = {
+        type: target.wsType,
+        entry_id: entryId,
+        limit: this._activityLimit(),
+      };
+      msg[target.idKey] = target.id;
+      const result = await this._hass.callWS(msg);
+      if (this._activeDialog !== overlay) return;
+      overlay.querySelector("[data-dialog-body]").innerHTML = this._activityRowsHtml(result?.rows || [], target);
+    } catch (err) {
+      if (this._activeDialog !== overlay) return;
+      overlay.querySelector("[data-dialog-body]").innerHTML = `<p class="control-message is-error">${this._escape(err.message || String(err))}</p>`;
+    }
+  }
+
+  _activityLimit() {
+    const limit = Number(this._config?.activity_limit);
+    return Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.round(limit))) : 25;
+  }
+
+  _activityRowsHtml(rows, target) {
+    if (!Array.isArray(rows) || !rows.length) return `<p class="muted">No activity yet.</p>`;
+    return `<div class="activity-list">${rows.map((row) => {
+      const message = String(row?.message || row?.field || "Activity").trim();
+      const meta = [
+        row?.createdAt?.label || "",
+        this._activityWhere(row, target?.scope),
+        row?.sourceLabel || row?.source || "",
+      ].filter(Boolean).join(" - ");
+      const change = this._activityChange(row);
+      const title = row?.createdAt?.value ? ` title="${this._escape(row.createdAt.value)}"` : "";
+      return `
+        <div class="activity-row">
+          <div class="activity-message">${this._escape(message)}</div>
+          <div class="activity-meta"${title}>${this._escape(meta)}</div>
+          ${change ? `<div class="activity-meta activity-change">${this._escape(change)}</div>` : ""}
+        </div>`;
+    }).join("")}</div>`;
+  }
+
+  _activityWhere(row, scope) {
+    const house = String(row?.houseName || "").trim();
+    const room = String(row?.roomName || "").trim();
+    const device = String(row?.deviceLabel || row?.deviceId || "").trim();
+    if (scope === "location") return [room || house, device].filter(Boolean).join(" / ");
+    return [house, room].filter(Boolean).join(" / ");
+  }
+
+  _activityChange(row) {
+    const oldValue = String(row?.oldValue ?? "").trim();
+    const newValue = String(row?.newValue ?? "").trim();
+    if (oldValue && newValue) return `${oldValue} -> ${newValue}`;
+    return newValue || oldValue;
+  }
+
+  _hydrateActivityLinks(root) {
+    root?.querySelectorAll("[data-activity-log]:not([data-activity-ready])").forEach((el) => {
+      el.dataset.activityReady = "1";
+      const open = () => this._showActivityLog({
+        scope: el.dataset.activityScope || "",
+        id: el.dataset.activityId || "",
+        title: el.dataset.activityTitle || "Activity",
+        wsType: el.dataset.activityWsType || "",
+        idKey: el.dataset.activityIdKey || "",
+      });
+      el.addEventListener("click", open);
+      el.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
+      });
+    });
   }
 
   _hydrateTimeToggles(root) {

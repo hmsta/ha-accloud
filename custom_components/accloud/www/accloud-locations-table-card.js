@@ -102,6 +102,19 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
     return String(row?.data?.locationId || row?.id || "").trim();
   }
 
+  _activityTarget(row, key) {
+    if (key !== "last_activity") return null;
+    const id = this._locationId(row);
+    if (!id) return null;
+    return {
+      scope: "location",
+      id,
+      title: `${this._rowTitle(row) || "Location"} Activity`,
+      wsType: "accloud/get_location_activity",
+      idKey: "location_id",
+    };
+  }
+
   _showLocationControl(row) {
     const locationId = this._locationId(row);
     if (!locationId) return;
