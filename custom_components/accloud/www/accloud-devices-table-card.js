@@ -256,12 +256,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _preferenceVersion() {
-    return 2;
+    return 3;
   }
 
   _migrateColumns(columns, version, defaults) {
-    if (version >= 2) return columns;
-    return this._withNewDefaultColumns(columns, defaults, ["est_watts"]);
+    let migrated = columns;
+    if (version < 2) migrated = this._withNewDefaultColumns(migrated, defaults, ["est_watts"]);
+    if (version < 3) migrated = this._withNewDefaultColumns(migrated, defaults, ["last_action", "last_activity"]);
+    return migrated;
   }
 
   _withNewDefaultColumns(columns, defaults, newKeys) {
@@ -677,7 +679,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const mainHtml = this._rowHasControl(row)
       ? this._rowControlButton(row, index, main, "mobile-room-control")
       : `<strong>${this._escape(main)}</strong>`;
-    const fields = columns.filter((key) => key !== "details").slice(0, 6);
+    const fields = columns.filter((key) => key !== "details");
     return `
       <div class="mobile-row">
         <div class="mobile-main">
