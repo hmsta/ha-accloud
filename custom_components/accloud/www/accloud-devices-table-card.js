@@ -765,11 +765,15 @@ class AccCloudDevicesTableCard extends HTMLElement {
   _showDetails(row) {
     if (!row) return;
     const body = this._columnDefs()
-      .filter((col) => col.key !== "details")
+      .filter((col) => !this._hiddenDetailsColumns().has(col.key))
       .map((col) => `<div>${this._escape(col.label)}</div><div>${this._detailsCellHtml(row, col)}</div>`)
       .join("");
     this._showDialog(this._rowTitle(row) || "Details", `<div class="details">${body}</div>`);
     this._hydrateTimeToggles(this._activeDialog);
+  }
+
+  _hiddenDetailsColumns() {
+    return new Set(["details", "actions"]);
   }
 
   async _showControl(row) {

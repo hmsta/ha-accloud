@@ -114,7 +114,7 @@ class AccCloudClient:
         """Apply a partial control state to all online devices in one location."""
         return await self._async_post_json(
             session,
-            f"/api/admin/locations/{quote(str(location_id), safe='')}/commands/state",
+            f"/api/locations/{quote(str(location_id), safe='')}/commands/state",
             state,
         )
 
