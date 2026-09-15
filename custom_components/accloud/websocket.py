@@ -20,6 +20,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_get_devices)
     websocket_api.async_register_command(hass, websocket_get_device_state)
     websocket_api.async_register_command(hass, websocket_get_device_activity)
+    websocket_api.async_register_command(hass, websocket_get_device_room_temp_chart)
     websocket_api.async_register_command(hass, websocket_set_device_state)
     websocket_api.async_register_command(hass, websocket_get_locations)
     websocket_api.async_register_command(hass, websocket_get_location_activity)
@@ -151,6 +152,47 @@ async def websocket_get_device_activity(
             async_get_clientsession(hass),
             msg["device_id"],
             limit=msg["limit"],
+        )
+    except AuthenticationError:
+        connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")
+        return
+    except UnexpectedResponse as err:
+        connection.send_error(msg["id"], "request_failed", str(err))
+        return
+    except Exception as err:
+        connection.send_error(msg["id"], "unknown_error", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "accloud/get_device_room_temp_chart",
+        vol.Required("entry_id"): str,
+        vol.Required("device_id"): str,
+        vol.Optional("range", default="24h"): vol.In(["24h", "7d", "30d"]),
+        vol.Optional("tz_offset_minutes", default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=-14 * 60, max=14 * 60)
+        ),
+    }
+)
+@websocket_api.async_response
+async def websocket_get_device_room_temp_chart(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return room temperature chart data for one AccCloud device."""
+    client = _client_for_entry(hass, msg["entry_id"])
+    if client is None:
+        connection.send_error(msg["id"], "not_found", "Unknown AccCloud config entry")
+        return
+    try:
+        result = await client.async_device_room_temp_chart(
+            async_get_clientsession(hass),
+            msg["device_id"],
+            range_key=msg["range"],
+            timezone_offset_minutes=msg["tz_offset_minutes"],
         )
     except AuthenticationError:
         connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")

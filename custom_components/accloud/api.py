@@ -106,6 +106,24 @@ class AccCloudClient:
             {"limit": max(1, min(100, int(limit)))},
         )
 
+    async def async_device_room_temp_chart(
+        self,
+        session: aiohttp.ClientSession,
+        device_id: str,
+        *,
+        range_key: str,
+        timezone_offset_minutes: int,
+    ) -> dict[str, Any]:
+        """Fetch room temperature chart data for one device."""
+        return await self._async_get_json(
+            session,
+            f"/api/devices/{quote(device_id, safe='')}/charts/room-temp",
+            {
+                "range": range_key,
+                "tz_offset_minutes": int(timezone_offset_minutes),
+            },
+        )
+
     async def async_set_device_state(
         self,
         session: aiohttp.ClientSession,

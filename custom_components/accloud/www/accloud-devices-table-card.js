@@ -98,7 +98,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ["est_watts", "Est. W"],
       ["mode", "Mode"],
       ["set_temp", "Set Temp"],
-      ["room_temp", "Room Temp"],
+      ["room_temp", "Room Temp", (row) => this._roomTempCellHtml(row)],
       ["fan", "Fan"],
       ["swing", "Swing"],
       ["timer", "Timer"],
@@ -548,6 +548,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
       .admin-time-toggle:hover, .admin-time-toggle:focus { outline: none; text-decoration: underline; }
       .activity-time { color: var(--primary-color); cursor: pointer; }
       .activity-time:hover, .activity-time:focus { outline: none; text-decoration: underline; }
+      .temp-chart-trigger { background: transparent; border: 0; color: var(--primary-color); font: inherit; min-height: 0; padding: 0; text-align: inherit; }
+      .temp-chart-trigger:hover, .temp-chart-trigger:focus { outline: none; text-decoration: underline; }
       .actions details { position: relative; }
       .actions summary { cursor: pointer; list-style: none; }
       .actions summary::-webkit-details-marker { display: none; }
@@ -667,6 +669,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     }
     this._hydrateTimeToggles(this.shadowRoot);
     this._hydrateActivityLinks(this.shadowRoot);
+    this._hydrateTemperatureChartLinks(this.shadowRoot);
   }
 
   _rangeLabel(start, end) {
@@ -776,6 +779,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._showDialog(this._rowTitle(row) || "Details", `<div class="details">${body}</div>`);
     this._hydrateTimeToggles(this._activeDialog);
     this._hydrateActivityLinks(this._activeDialog);
+    this._hydrateTemperatureChartLinks(this._activeDialog);
   }
 
   _hiddenDetailsColumns() {
@@ -1071,12 +1075,32 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .admin-time-toggle:hover, .admin-time-toggle:focus { outline: none; text-decoration: underline; }
         .activity-time { color: var(--primary-color); cursor: pointer; }
         .activity-time:hover, .activity-time:focus { outline: none; text-decoration: underline; }
+        .temp-chart-trigger { background: transparent; border: 0; color: var(--primary-color); font: inherit; min-height: 0; padding: 0; text-align: inherit; }
+        .temp-chart-trigger:hover, .temp-chart-trigger:focus { outline: none; text-decoration: underline; }
         .activity-list { display: grid; gap: 10px; }
         .activity-row { border-bottom: 1px solid var(--divider-color, #ddd); display: grid; gap: 3px; padding-bottom: 10px; }
         .activity-row:last-child { border-bottom: 0; padding-bottom: 0; }
         .activity-message { font-weight: 650; line-height: 1.3; }
         .activity-meta { color: var(--secondary-text-color, #666); font-size: 12px; line-height: 1.35; }
         .activity-change { font-family: var(--code-font-family, monospace); }
+        .chart-card { display: grid; gap: 12px; }
+        .chart-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+        .chart-title { align-items: baseline; display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+        .chart-dot { background: var(--primary-color, #2196f3); border-radius: 50%; flex: 0 0 14px; height: 14px; width: 14px; }
+        .chart-title strong { font-size: 16px; }
+        .chart-current { color: var(--secondary-text-color, #666); font-size: 16px; font-weight: 650; }
+        .chart-ranges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+        .chart-range { background: rgba(127, 127, 127, 0.16); border: 0; border-radius: 8px; color: var(--primary-text-color, #111); font-weight: 700; min-height: 32px; padding: 0 12px; }
+        .chart-range.is-active { background: var(--primary-color, #2196f3); color: var(--text-primary-color, #fff); }
+        .chart-body { min-height: 244px; position: relative; }
+        .chart-loading, .chart-empty { align-items: center; color: var(--secondary-text-color, #666); display: flex; justify-content: center; min-height: 220px; }
+        .temp-chart-svg { display: block; height: auto; max-width: 100%; overflow: visible; width: 100%; }
+        .temp-chart-grid { stroke: var(--divider-color, #ddd); stroke-dasharray: 4 6; stroke-width: 1; }
+        .temp-chart-axis-text { fill: var(--secondary-text-color, #666); font-size: 12px; }
+        .temp-chart-line { fill: none; stroke: var(--primary-color, #2196f3); stroke-linecap: round; stroke-linejoin: round; stroke-width: 4; }
+        .temp-chart-area { fill: var(--primary-color, #2196f3); opacity: .18; }
+        .temp-chart-point { fill: var(--primary-color, #2196f3); }
+        .temp-chart-meta { color: var(--secondary-text-color, #666); font-size: 12px; margin-top: -6px; }
         .pill { border-radius: 999px; display: inline-block; font-size: 12px; line-height: 1; padding: 4px 8px; }
         .ok { background: rgba(36, 161, 72, 0.14); color: #1a7f37; }
         .warn, .bad { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
@@ -1087,6 +1111,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
           .accloud-dialog-card { max-height: 88vh; max-width: none; width: calc(100vw - 20px); }
           .details { grid-template-columns: 1fr; }
           .control-grid { grid-template-columns: 1fr; }
+          .chart-toolbar { align-items: flex-start; }
+          .chart-ranges { justify-content: flex-start; }
+          .chart-body { min-height: 216px; }
           .column-panel { gap: 10px; }
           .column-panel label { font-size: 15px; }
           .column-panel input[type="checkbox"] { height: 20px; width: 20px; }
@@ -1126,6 +1153,15 @@ class AccCloudDevicesTableCard extends HTMLElement {
   _roomButton(row, index) {
     const label = this._cellText(row, "room") || this._cellText(row, "device") || "Control";
     return this._rowHasControl(row) ? this._rowControlButton(row, index, label) : this._escape(label);
+  }
+
+  _roomTempCellHtml(row) {
+    const cell = this._cell(row, "room_temp");
+    const label = this._cellDisplayText(cell).trim();
+    const deviceId = this._deviceId(row);
+    if (!deviceId) return this._renderCell(cell);
+    const title = `${this._rowTitle(row) || "Device"} Room Temperature`;
+    return `<button class="temp-chart-trigger" type="button" data-temp-chart data-device-id="${this._escape(deviceId)}" data-chart-title="${this._escape(title)}" data-current-temp="${this._escape(label)}" title="Open room temperature chart">${this._renderCell(cell)}</button>`;
   }
 
   _detailsButton(index) {
@@ -1353,6 +1389,190 @@ class AccCloudDevicesTableCard extends HTMLElement {
       button.replaceWith(text);
     }
     return template.innerHTML;
+  }
+
+  _temperatureRanges() {
+    return [["24h", "24H"], ["7d", "7D"], ["30d", "30D"]];
+  }
+
+  async _showTemperatureChart(target) {
+    if (!target?.deviceId) return;
+    const defaultRange = this._validTemperatureRange(this._config?.temperature_chart_default_range || "24h");
+    const overlay = this._showDialog(target.title || "Room Temperature", this._temperatureChartShellHtml(target, defaultRange), { kind: "temperature-chart", maxWidth: 640 });
+    this._attachTemperatureChartHandlers(overlay, target);
+    await this._loadTemperatureChart(overlay, target, defaultRange);
+  }
+
+  _temperatureChartShellHtml(target, activeRange) {
+    return `
+      <div class="chart-card">
+        <div class="chart-toolbar">
+          <div class="chart-title">
+            <span class="chart-dot"></span>
+            <strong>Room Temperature</strong>
+            <span class="chart-current" data-chart-current>${this._escape(target.currentTemp || "--")}</span>
+          </div>
+          <div class="chart-ranges">
+            ${this._temperatureRanges().map(([value, label]) => `<button class="chart-range ${value === activeRange ? "is-active" : ""}" type="button" data-chart-range="${value}">${label}</button>`).join("")}
+          </div>
+        </div>
+        <div class="chart-body" data-chart-body><div class="chart-loading">Loading temperature history...</div></div>
+      </div>`;
+  }
+
+  _attachTemperatureChartHandlers(overlay, target) {
+    overlay?.querySelectorAll("[data-chart-range]").forEach((button) => {
+      button.addEventListener("click", () => this._loadTemperatureChart(overlay, target, this._validTemperatureRange(button.dataset.chartRange)));
+    });
+  }
+
+  async _loadTemperatureChart(overlay, target, range) {
+    if (!overlay || this._activeDialog !== overlay) return;
+    const body = overlay.querySelector("[data-chart-body]");
+    if (!body) return;
+    const requestId = `${range}-${Date.now()}-${Math.random()}`;
+    overlay.dataset.chartRequest = requestId;
+    overlay.querySelectorAll("[data-chart-range]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.chartRange === range);
+      button.disabled = button.dataset.chartRange === range;
+    });
+    body.innerHTML = `<div class="chart-loading">Loading temperature history...</div>`;
+    try {
+      const entryId = await this._entryId();
+      if (!entryId) throw new Error(this._error || "No AccCloud integration entry is available.");
+      const result = await this._hass.callWS({
+        type: "accloud/get_device_room_temp_chart",
+        entry_id: entryId,
+        device_id: target.deviceId,
+        range,
+        tz_offset_minutes: new Date().getTimezoneOffset(),
+      });
+      if (this._activeDialog !== overlay || overlay.dataset.chartRequest !== requestId) return;
+      const points = this._temperaturePoints(result);
+      const latest = points[points.length - 1];
+      const current = overlay.querySelector("[data-chart-current]");
+      if (current && latest) current.textContent = this._temperatureValueLabel(latest.value);
+      body.innerHTML = this._temperatureChartHtml(points, range);
+    } catch (err) {
+      if (this._activeDialog !== overlay || overlay.dataset.chartRequest !== requestId) return;
+      body.innerHTML = `<div class="chart-empty">${this._escape(err.message || String(err))}</div>`;
+    } finally {
+      if (this._activeDialog === overlay && overlay.dataset.chartRequest === requestId) {
+        overlay.querySelectorAll("[data-chart-range]").forEach((button) => {
+          button.disabled = false;
+        });
+      }
+    }
+  }
+
+  _temperaturePoints(result) {
+    const points = Array.isArray(result?.points) ? result.points : [];
+    return points
+      .map((point) => {
+        const time = new Date(point?.recordedAt || "").getTime();
+        const value = Number(point?.roomTempC);
+        return { time, value };
+      })
+      .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+      .sort((left, right) => left.time - right.time);
+  }
+
+  _temperatureChartHtml(points, range) {
+    if (!points.length) return `<div class="chart-empty">No temperature history yet.</div>`;
+    const width = 560;
+    const height = 260;
+    const plot = { left: 44, top: 12, right: 10, bottom: 34 };
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const now = Date.now();
+    const xMin = this._temperatureRangeStart(range, now);
+    const xMax = Math.max(now, points[points.length - 1].time, xMin + 1);
+    const values = points.map((point) => point.value);
+    let yMin = Math.floor(Math.min(...values) - 1);
+    let yMax = Math.ceil(Math.max(...values) + 1);
+    if (yMax - yMin < 2) {
+      yMin -= 1;
+      yMax += 1;
+    }
+    const x = (time) => plot.left + ((Math.min(Math.max(time, xMin), xMax) - xMin) / (xMax - xMin)) * plotWidth;
+    const y = (value) => plot.top + (1 - ((value - yMin) / (yMax - yMin))) * plotHeight;
+    const chartPoints = points.filter((point) => point.time >= xMin && point.time <= xMax);
+    const visiblePoints = chartPoints.length ? chartPoints : points.slice(-1);
+    const coords = visiblePoints.map((point) => [x(point.time), y(point.value)]);
+    const linePath = coords.length === 1 ? "" : coords.map(([px, py], index) => `${index ? "L" : "M"}${px.toFixed(1)} ${py.toFixed(1)}`).join(" ");
+    const areaPath = coords.length === 1 ? "" : `${linePath} L${coords[coords.length - 1][0].toFixed(1)} ${(height - plot.bottom).toFixed(1)} L${coords[0][0].toFixed(1)} ${(height - plot.bottom).toFixed(1)} Z`;
+    const yTicks = this._temperatureTicks(yMin, yMax, 4);
+    const xTicks = this._temperatureTimeTicks(xMin, xMax, range);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return `
+      <svg class="temp-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Room temperature history">
+        ${yTicks.map((tick) => {
+          const py = y(tick);
+          return `<line class="temp-chart-grid" x1="${plot.left}" y1="${py.toFixed(1)}" x2="${width - plot.right}" y2="${py.toFixed(1)}"></line><text class="temp-chart-axis-text" x="${plot.left - 8}" y="${(py + 4).toFixed(1)}" text-anchor="end">${this._escape(this._temperatureAxisLabel(tick))}</text>`;
+        }).join("")}
+        ${xTicks.map((tick) => {
+          const px = x(tick);
+          return `<line class="temp-chart-grid" x1="${px.toFixed(1)}" y1="${plot.top}" x2="${px.toFixed(1)}" y2="${height - plot.bottom}"></line><text class="temp-chart-axis-text" x="${px.toFixed(1)}" y="${height - 10}" text-anchor="middle">${this._escape(this._temperatureTimeLabel(tick, range))}</text>`;
+        }).join("")}
+        ${areaPath ? `<path class="temp-chart-area" d="${areaPath}"></path>` : ""}
+        ${linePath ? `<path class="temp-chart-line" d="${linePath}"></path>` : ""}
+        ${coords.length === 1 ? `<circle class="temp-chart-point" cx="${coords[0][0].toFixed(1)}" cy="${coords[0][1].toFixed(1)}" r="4"></circle>` : ""}
+      </svg>
+      <div class="temp-chart-meta">Min ${this._temperatureValueLabel(min)} · Max ${this._temperatureValueLabel(max)}</div>`;
+  }
+
+  _validTemperatureRange(value) {
+    return new Set(this._temperatureRanges().map(([range]) => range)).has(value) ? value : "24h";
+  }
+
+  _temperatureRangeStart(range, now) {
+    if (range === "7d") return now - 7 * 24 * 60 * 60 * 1000;
+    if (range === "30d") return now - 30 * 24 * 60 * 60 * 1000;
+    return now - 24 * 60 * 60 * 1000;
+  }
+
+  _temperatureTicks(min, max, count) {
+    const ticks = [];
+    const step = (max - min) / Math.max(1, count - 1);
+    for (let index = 0; index < count; index += 1) ticks.push(min + step * index);
+    return ticks;
+  }
+
+  _temperatureTimeTicks(start, end, range) {
+    const count = range === "30d" ? 4 : 5;
+    const ticks = [];
+    const step = (end - start) / Math.max(1, count - 1);
+    for (let index = 0; index < count; index += 1) ticks.push(start + step * index);
+    return ticks;
+  }
+
+  _temperatureAxisLabel(value) {
+    return `${Math.round(value)}°`;
+  }
+
+  _temperatureValueLabel(value) {
+    return `${Number(value).toFixed(1)} °C`;
+  }
+
+  _temperatureTimeLabel(timestamp, range) {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return "";
+    if (range === "24h") {
+      return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    }
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  _hydrateTemperatureChartLinks(root) {
+    root?.querySelectorAll("[data-temp-chart]:not([data-temp-chart-ready])").forEach((el) => {
+      el.dataset.tempChartReady = "1";
+      el.addEventListener("click", () => this._showTemperatureChart({
+        deviceId: el.dataset.deviceId || "",
+        title: el.dataset.chartTitle || "Room Temperature",
+        currentTemp: el.dataset.currentTemp || "",
+      }));
+    });
   }
 
   async _showActivityLog(target) {
