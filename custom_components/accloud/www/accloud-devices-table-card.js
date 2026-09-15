@@ -847,6 +847,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
           <label class="control-field" data-special-field><span>Special mode</span><select name="special">${this._optionsHtml(this._specialOptions(), draft.special)}</select></label>
           <label class="control-field"><span>Ion</span><select name="plasmaIon">${this._optionsHtml([["off", "Off"], ["on", "On"]], draft.plasmaIon)}</select></label>
           <label class="control-field"><span>Air direction</span><select name="swing">${this._optionsHtml(this._swingOptions(), draft.swing)}</select></label>
+          <label class="control-field" data-timer-field><span>Auto off</span><select name="offTimerMinutes">${this._optionsHtml(this._offTimerOptions(), "")}</select></label>
         </div>
         <div class="control-actions">
           <span class="control-message" data-control-message>${this._escape(options.message || "Draft is sent only when you press Apply.")}</span>
@@ -891,6 +892,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const modeField = form.querySelector("[data-mode-field]");
     const fanField = form.querySelector("[data-fan-field]");
     const specialField = form.querySelector("[data-special-field]");
+    const timerField = form.querySelector("[data-timer-field]");
     form.elements.mode.disabled = !powered;
     if (modeField) modeField.classList.toggle("muted", !powered);
     if (tempField) tempField.hidden = mode === "fan";
@@ -903,6 +905,16 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (specialField) specialField.classList.toggle("muted", form.elements.special.disabled);
     form.elements.plasmaIon.disabled = !powered;
     form.elements.swing.disabled = !powered;
+    if (form.elements.offTimerMinutes) {
+      for (const option of form.elements.offTimerMinutes.options) {
+        const minutes = Number(option.value);
+        option.disabled = !powered && Number.isFinite(minutes) && minutes > 0;
+      }
+      if (!powered && Number(form.elements.offTimerMinutes.value) > 0) {
+        form.elements.offTimerMinutes.value = "0";
+      }
+    }
+    if (timerField) timerField.classList.toggle("muted", !powered && form.elements.offTimerMinutes?.value !== "0");
   }
 
   async _applyControlState(row, form) {
@@ -934,7 +946,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _controlPayload(form) {
     const power = form.elements.power.value === "on" ? "on" : "off";
-    if (power === "off") return { power: "off" };
+    const applyOffTimer = (payload) => {
+      const value = form.elements.offTimerMinutes?.value ?? "";
+      if (value !== "") payload.offTimerMinutes = Number(value);
+      return payload;
+    };
+    if (power === "off") return applyOffTimer({ power: "off" });
     const mode = form.elements.mode.value;
     const payload = {
       power: "on",
@@ -945,7 +962,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       swing: form.elements.swing.value,
     };
     if (mode !== "fan") payload.targetTempC = Number(form.elements.targetTempC.value);
-    return payload;
+    return applyOffTimer(payload);
   }
 
   _controlDraft(state) {
@@ -984,6 +1001,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _swingOptions() {
     return [["off", "Off"], ["vertical", "Up / Down"], ["horizontal", "Left / Right"], ["both", "All directions"], ["hada", "Comfort"], ["fixed_1", "Position 1"], ["fixed_2", "Position 2"], ["fixed_3", "Position 3"], ["fixed_4", "Position 4"], ["fixed_5", "Position 5"]];
+  }
+
+  _offTimerOptions() {
+    return [["", "No change"], ["0", "Clear timer"], ["30", "30 min"], ["60", "60 min"], ["120", "120 min"]];
   }
 
   _optionsHtml(options, selected) {
