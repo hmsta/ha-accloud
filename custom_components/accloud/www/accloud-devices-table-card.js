@@ -1142,6 +1142,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .temp-chart-line { fill: none; stroke: var(--primary-color, #2196f3); stroke-linecap: round; stroke-linejoin: round; stroke-width: 4; }
         .temp-chart-area { fill: var(--primary-color, #2196f3); opacity: .18; }
         .temp-chart-point { fill: var(--primary-color, #2196f3); }
+        .temp-chart-hit { fill: transparent; pointer-events: all; touch-action: none; }
+        .temp-chart-cursor { stroke: var(--primary-color, #2196f3); stroke-dasharray: 3 4; stroke-width: 1.5; }
+        .temp-chart-hover-point { fill: var(--primary-color, #2196f3); stroke: var(--ha-card-background, var(--card-background-color, #fff)); stroke-width: 3; }
+        .temp-chart-tooltip { background: var(--ha-card-background, var(--card-background-color, #fff)); border: 1px solid var(--divider-color, #ddd); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.22); color: var(--primary-text-color, #111); display: grid; font-size: 12px; gap: 2px; line-height: 1.25; padding: 6px 8px; pointer-events: none; position: absolute; transform: translate(-50%, calc(-100% - 10px)); white-space: nowrap; z-index: 2; }
+        .temp-chart-tooltip strong { font-size: 13px; }
+        .temp-chart-tooltip span { color: var(--secondary-text-color, #666); }
         .temp-chart-meta { color: var(--secondary-text-color, #666); font-size: 12px; margin-top: -6px; }
         .pill { border-radius: 999px; display: inline-block; font-size: 12px; line-height: 1; padding: 4px 8px; }
         .ok { background: rgba(36, 161, 72, 0.14); color: #1a7f37; }
@@ -1497,6 +1503,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       const current = overlay.querySelector("[data-chart-current]");
       if (current && latest) current.textContent = this._temperatureValueLabel(latest.value);
       body.innerHTML = this._temperatureChartHtml(points, range);
+      this._attachTemperatureChartTooltip(body, points);
     } catch (err) {
       if (this._activeDialog !== overlay || overlay.dataset.chartRequest !== requestId) return;
       body.innerHTML = `<div class="chart-empty">${this._escape(err.message || String(err))}</div>`;
@@ -1550,7 +1557,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const min = Math.min(...values);
     const max = Math.max(...values);
     return `
-      <svg class="temp-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Room temperature history">
+      <svg class="temp-chart-svg" data-temp-chart-svg data-x-min="${xMin}" data-x-max="${xMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-plot-left="${plot.left}" data-plot-top="${plot.top}" data-plot-right="${width - plot.right}" data-plot-bottom="${height - plot.bottom}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Room temperature history">
         ${yTicks.map((tick) => {
           const py = y(tick);
           return `<line class="temp-chart-grid" x1="${plot.left}" y1="${py.toFixed(1)}" x2="${width - plot.right}" y2="${py.toFixed(1)}"></line><text class="temp-chart-axis-text" x="${plot.left - 8}" y="${(py + 4).toFixed(1)}" text-anchor="end">${this._escape(this._temperatureAxisLabel(tick))}</text>`;
@@ -1562,8 +1569,85 @@ class AccCloudDevicesTableCard extends HTMLElement {
         ${areaPath ? `<path class="temp-chart-area" d="${areaPath}"></path>` : ""}
         ${linePath ? `<path class="temp-chart-line" d="${linePath}"></path>` : ""}
         ${coords.length === 1 ? `<circle class="temp-chart-point" cx="${coords[0][0].toFixed(1)}" cy="${coords[0][1].toFixed(1)}" r="4"></circle>` : ""}
+        <g data-chart-hover hidden>
+          <line class="temp-chart-cursor" data-chart-hover-line x1="${plot.left}" y1="${plot.top}" x2="${plot.left}" y2="${height - plot.bottom}"></line>
+          <circle class="temp-chart-hover-point" data-chart-hover-point cx="${plot.left}" cy="${plot.top}" r="5"></circle>
+        </g>
+        <rect class="temp-chart-hit" data-chart-hit x="${plot.left}" y="${plot.top}" width="${plotWidth}" height="${plotHeight}"></rect>
       </svg>
+      <div class="temp-chart-tooltip" data-chart-tooltip hidden></div>
       <div class="temp-chart-meta">Min ${this._temperatureValueLabel(min)} · Max ${this._temperatureValueLabel(max)}</div>`;
+  }
+
+  _attachTemperatureChartTooltip(root, points) {
+    const svg = root?.querySelector("[data-temp-chart-svg]");
+    const hit = svg?.querySelector("[data-chart-hit]");
+    const hover = svg?.querySelector("[data-chart-hover]");
+    const line = svg?.querySelector("[data-chart-hover-line]");
+    const marker = svg?.querySelector("[data-chart-hover-point]");
+    const tooltip = root?.querySelector("[data-chart-tooltip]");
+    if (!svg || !hit || !hover || !line || !marker || !tooltip || !points.length) return;
+    const xMin = Number(svg.dataset.xMin);
+    const xMax = Number(svg.dataset.xMax);
+    const yMin = Number(svg.dataset.yMin);
+    const yMax = Number(svg.dataset.yMax);
+    const plotLeft = Number(svg.dataset.plotLeft);
+    const plotTop = Number(svg.dataset.plotTop);
+    const plotRight = Number(svg.dataset.plotRight);
+    const plotBottom = Number(svg.dataset.plotBottom);
+    const plotWidth = plotRight - plotLeft;
+    const plotHeight = plotBottom - plotTop;
+    if (![xMin, xMax, yMin, yMax, plotLeft, plotTop, plotRight, plotBottom].every(Number.isFinite) || xMax <= xMin || yMax <= yMin) return;
+    const x = (time) => plotLeft + ((Math.min(Math.max(time, xMin), xMax) - xMin) / (xMax - xMin)) * plotWidth;
+    const y = (value) => plotTop + (1 - ((value - yMin) / (yMax - yMin))) * plotHeight;
+    const chartPoints = points.filter((point) => point.time >= xMin && point.time <= xMax);
+    const visiblePoints = (chartPoints.length ? chartPoints : points.slice(-1)).map((point) => ({ ...point, x: x(point.time), y: y(point.value) }));
+    let hideTimer = 0;
+    const hide = () => {
+      window.clearTimeout(hideTimer);
+      hover.hidden = true;
+      tooltip.hidden = true;
+    };
+    const show = (event) => {
+      if (event.pointerType && event.pointerType !== "mouse") event.preventDefault();
+      window.clearTimeout(hideTimer);
+      const rect = svg.getBoundingClientRect();
+      const viewBox = svg.viewBox.baseVal;
+      const scaleX = viewBox.width / rect.width;
+      const svgX = Math.min(plotRight, Math.max(plotLeft, (event.clientX - rect.left) * scaleX));
+      let nearest = visiblePoints[0];
+      for (const point of visiblePoints) {
+        if (Math.abs(point.x - svgX) < Math.abs(nearest.x - svgX)) nearest = point;
+      }
+      hover.hidden = false;
+      line.setAttribute("x1", nearest.x.toFixed(1));
+      line.setAttribute("x2", nearest.x.toFixed(1));
+      marker.setAttribute("cx", nearest.x.toFixed(1));
+      marker.setAttribute("cy", nearest.y.toFixed(1));
+      tooltip.innerHTML = `<strong>${this._escape(this._temperatureValueLabel(nearest.value))}</strong><span>${this._escape(this._temperatureTooltipTimeLabel(nearest.time))}</span>`;
+      tooltip.hidden = false;
+      const rootRect = root.getBoundingClientRect();
+      const scaleY = viewBox.height / rect.height;
+      const left = rect.left - rootRect.left + nearest.x / scaleX;
+      const top = rect.top - rootRect.top + nearest.y / scaleY;
+      tooltip.style.left = `${Math.max(44, Math.min(rootRect.width - 44, left))}px`;
+      tooltip.style.top = `${Math.max(34, top)}px`;
+    };
+    hit.addEventListener("pointerdown", (event) => {
+      try {
+        hit.setPointerCapture(event.pointerId);
+      } catch (_) {
+        // Some embedded webviews do not allow capture on SVG elements.
+      }
+      show(event);
+    });
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerleave", hide);
+    hit.addEventListener("pointercancel", hide);
+    hit.addEventListener("pointerup", (event) => {
+      show(event);
+      hideTimer = window.setTimeout(hide, event.pointerType === "mouse" ? 250 : 1800);
+    });
   }
 
   _validTemperatureRange(value) {
@@ -1606,6 +1690,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
       return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
     }
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  _temperatureTooltipTimeLabel(timestamp) {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
   _hydrateTemperatureChartLinks(root) {
