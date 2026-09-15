@@ -826,25 +826,27 @@ class AccCloudDevicesTableCard extends HTMLElement {
     return `
       <form class="control-form" data-control-form>
         <div class="control-status">
-          <strong>${this._escape(state.roomTempLabel || "Room --")}</strong>
+          <div class="control-heading">
+            <strong>${this._escape(state.roomTempLabel || "Room --")}</strong>
+            <span>${this._escape(status || "Current state unavailable")}</span>
+          </div>
           <span class="pill ${state.online ? "ok" : "warn"}">${this._escape(state.onlineText || (state.online ? "online" : "offline"))}</span>
         </div>
-        <div class="muted">${this._escape(status || "Current state unavailable")}</div>
         <input type="hidden" name="power" value="${this._escape(draft.power)}">
-        <div>
+        <div class="control-section">
           <div class="menu-title">Power</div>
           <div class="control-power">
-            <button type="button" data-power-option="off">Off</button>
-            <button type="button" data-power-option="on">On</button>
+            <button type="button" data-power-option="off" aria-pressed="false">Off</button>
+            <button type="button" data-power-option="on" aria-pressed="false">On</button>
           </div>
         </div>
         <div class="control-grid">
-          <label data-mode-field><span>Mode</span><select name="mode">${this._optionsHtml(this._modeOptions(), draft.mode)}</select></label>
-          <label data-temp-field><span>Set temp</span><select name="targetTempC">${this._tempOptionsHtml(draft.targetTempC)}</select></label>
-          <label data-fan-field><span>Fan</span><select name="fan">${this._optionsHtml(this._fanOptions(), draft.fan)}</select></label>
-          <label data-special-field><span>Special mode</span><select name="special">${this._optionsHtml(this._specialOptions(), draft.special)}</select></label>
-          <label><span>Ion</span><select name="plasmaIon">${this._optionsHtml([["off", "Off"], ["on", "On"]], draft.plasmaIon)}</select></label>
-          <label><span>Air direction</span><select name="swing">${this._optionsHtml(this._swingOptions(), draft.swing)}</select></label>
+          <label class="control-field" data-mode-field><span>Mode</span><select name="mode">${this._optionsHtml(this._modeOptions(), draft.mode)}</select></label>
+          <label class="control-field" data-temp-field><span>Set temp</span><select name="targetTempC">${this._tempOptionsHtml(draft.targetTempC)}</select></label>
+          <label class="control-field" data-fan-field><span>Fan</span><select name="fan">${this._optionsHtml(this._fanOptions(), draft.fan)}</select></label>
+          <label class="control-field" data-special-field><span>Special mode</span><select name="special">${this._optionsHtml(this._specialOptions(), draft.special)}</select></label>
+          <label class="control-field"><span>Ion</span><select name="plasmaIon">${this._optionsHtml([["off", "Off"], ["on", "On"]], draft.plasmaIon)}</select></label>
+          <label class="control-field"><span>Air direction</span><select name="swing">${this._optionsHtml(this._swingOptions(), draft.swing)}</select></label>
         </div>
         <div class="control-actions">
           <span class="control-message" data-control-message>${this._escape(options.message || "Draft is sent only when you press Apply.")}</span>
@@ -881,7 +883,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const powered = form.elements.power.value === "on";
     const mode = form.elements.mode.value;
     for (const button of form.querySelectorAll("[data-power-option]")) {
-      button.classList.toggle("selected", button.dataset.powerOption === form.elements.power.value);
+      const selected = button.dataset.powerOption === form.elements.power.value;
+      button.classList.toggle("selected", selected);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
     }
     const tempField = form.querySelector("[data-temp-field]");
     const modeField = form.querySelector("[data-mode-field]");
@@ -1043,31 +1047,47 @@ class AccCloudDevicesTableCard extends HTMLElement {
     overlay.dataset.kind = options.kind || "details";
     overlay.innerHTML = `
       <style>
-        .accloud-dialog { align-items: flex-start; background: rgba(0,0,0,0.35); box-sizing: border-box; display: flex; inset: 0; justify-content: center; padding: 8vh 10px 16px; position: fixed; z-index: 2147483647; }
-        .accloud-dialog-card { background: var(--card-background-color, #fff); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.28); box-sizing: border-box; color: var(--primary-text-color, #111); max-height: 80vh; max-width: ${Number(options.maxWidth) || 720}px; overflow: auto; padding: 16px; width: min(100%, ${Number(options.maxWidth) || 720}px); }
-        .dialog-head { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-bottom: 12px; }
+        .accloud-dialog { align-items: flex-start; background: rgba(0,0,0,0.42); box-sizing: border-box; display: flex; inset: 0; justify-content: center; padding: 8vh 10px 16px; position: fixed; z-index: 2147483647; }
+        .accloud-dialog-card { background: var(--ha-card-background, var(--card-background-color, #fff)); border: 1px solid var(--ha-card-border-color, transparent); border-radius: var(--ha-card-border-radius, 12px); box-shadow: var(--ha-card-box-shadow, 0 12px 32px rgba(0,0,0,0.30)); box-sizing: border-box; color: var(--primary-text-color, #111); max-height: 80vh; max-width: ${Number(options.maxWidth) || 720}px; overflow: auto; width: min(100%, ${Number(options.maxWidth) || 720}px); }
+        .dialog-head { align-items: center; display: flex; gap: 10px; justify-content: space-between; padding: 14px 18px 4px; }
+        .dialog-title { font-size: 18px; font-weight: 600; line-height: 1.25; min-width: 0; }
+        .dialog-close { align-items: center; background: transparent; border: 0; border-radius: 50%; color: var(--secondary-text-color, #666); cursor: pointer; display: inline-flex; flex: 0 0 auto; height: 32px; justify-content: center; min-height: 32px; padding: 0; position: relative; width: 32px; }
+        .dialog-close::before, .dialog-close::after { background: currentColor; border-radius: 999px; content: ""; height: 2px; position: absolute; width: 16px; }
+        .dialog-close::before { transform: rotate(45deg); }
+        .dialog-close::after { transform: rotate(-45deg); }
+        .dialog-close:hover, .dialog-close:focus-visible { background: rgba(127, 127, 127, 0.14); outline: none; }
+        .dialog-body { padding: 4px 18px 18px; }
         .details { display: grid; gap: 6px 14px; grid-template-columns: minmax(120px, max-content) 1fr; }
         .details div:nth-child(odd), .menu-title { color: var(--secondary-text-color, #666); }
-        .menu-title { font-size: 12px; font-weight: 650; margin: 4px 0 6px; text-transform: uppercase; }
+        .menu-title { font-size: 12px; font-weight: 700; letter-spacing: 0; margin: 2px 0 8px; text-transform: uppercase; }
         .column-panel { display: grid; gap: 6px; }
         .column-panel label { align-items: center; display: flex; font-size: 13px; gap: 8px; line-height: 1.3; min-height: 28px; white-space: nowrap; }
         .column-panel input[type="checkbox"] { flex: 0 0 auto; height: 16px; margin: 0; width: 16px; }
         .dialog-actions { margin-top: 10px; }
         .menu-button { width: 100%; }
         .control-form { display: grid; gap: 12px; }
-        .control-status { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
-        .control-status strong { font-size: 16px; }
-        .control-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .control-grid label { display: grid; font-size: 12px; gap: 4px; }
-        .control-grid label span { color: var(--secondary-text-color, #666); }
-        .control-grid select { width: 100%; }
-        .control-power { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .control-power button.selected { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }
-        .control-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
-        .control-message { color: var(--secondary-text-color, #666); flex: 1 1 auto; font-size: 12px; min-width: 140px; }
+        .control-status { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+        .control-heading { display: grid; gap: 2px; min-width: 0; }
+        .control-status strong { font-size: 18px; font-weight: 600; line-height: 1.2; }
+        .control-heading span { color: var(--secondary-text-color, #666); font-size: 13px; line-height: 1.3; }
+        .control-grid { display: grid; gap: 9px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .control-field { display: grid; gap: 4px; min-width: 0; }
+        .control-field span { color: var(--secondary-text-color, #666); font-size: 12px; line-height: 1.2; }
+        .control-field select { background: var(--ha-card-background, var(--card-background-color, #fff)); border: 1px solid var(--divider-color, #ddd); border-radius: 8px; box-sizing: border-box; color: var(--primary-text-color, #111); font: inherit; min-height: 34px; padding: 0 10px; width: 100%; }
+        .control-field select:focus { border-color: var(--primary-color, #2196f3); box-shadow: 0 0 0 1px var(--primary-color, #2196f3); outline: none; }
+        .control-field select:disabled { cursor: not-allowed; opacity: .55; }
+        .control-field.muted span { opacity: .7; }
+        .control-power { background: var(--secondary-background-color, rgba(127, 127, 127, 0.10)); border: 1px solid var(--divider-color, #ddd); border-radius: 10px; display: grid; gap: 3px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 3px; }
+        .control-power button { background: transparent; border: 0; border-radius: 7px; color: var(--primary-text-color, #111); cursor: pointer; font: inherit; font-weight: 600; min-height: 32px; padding: 0 12px; }
+        .control-power button:hover, .control-power button:focus-visible { background: rgba(127, 127, 127, 0.12); outline: none; }
+        .control-power button.selected { background: var(--primary-color, #2196f3); box-shadow: 0 2px 8px rgba(0,0,0,0.18); color: var(--text-primary-color, #fff); }
+        .control-actions { align-items: center; border-top: 1px solid var(--divider-color, #ddd); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 10px; }
+        .control-message { color: var(--secondary-text-color, #666); flex: 1 1 auto; font-size: 12px; line-height: 1.3; min-width: 180px; }
         .control-message.is-error { color: #cf222e; }
         .control-message.is-ok { color: #1a7f37; }
-        .control-apply { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); min-width: 96px; }
+        .control-apply { background: var(--primary-color, #2196f3); border: 0; border-radius: 8px; color: var(--text-primary-color, #fff); cursor: pointer; font: inherit; font-weight: 700; min-height: 34px; min-width: 104px; padding: 0 14px; }
+        .control-apply:hover, .control-apply:focus-visible { filter: brightness(1.05); outline: none; }
+        .control-apply:disabled { cursor: wait; opacity: .65; }
         a { color: var(--primary-color); text-decoration: none; }
         .muted { color: var(--secondary-text-color); }
         .mono { font-family: var(--code-font-family, monospace); }
@@ -1110,7 +1130,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
           .accloud-dialog { padding-top: 4vh; }
           .accloud-dialog-card { max-height: 88vh; max-width: none; width: calc(100vw - 20px); }
           .details { grid-template-columns: 1fr; }
-          .control-grid { grid-template-columns: 1fr; }
           .chart-toolbar { align-items: flex-start; }
           .chart-ranges { justify-content: flex-start; }
           .chart-body { min-height: 216px; }
@@ -1118,13 +1137,16 @@ class AccCloudDevicesTableCard extends HTMLElement {
           .column-panel label { font-size: 15px; }
           .column-panel input[type="checkbox"] { height: 20px; width: 20px; }
         }
+        @media (max-width: 360px) {
+          .control-grid { grid-template-columns: 1fr; }
+        }
       </style>
       <div class="accloud-dialog-card" role="dialog" aria-modal="true">
         <div class="dialog-head">
-          <strong>${this._escape(title)}</strong>
-          <button data-close type="button">Close</button>
+          <strong class="dialog-title">${this._escape(title)}</strong>
+          <button class="dialog-close" data-close type="button" aria-label="Close"></button>
         </div>
-        <div data-dialog-body>${body}</div>
+        <div class="dialog-body" data-dialog-body>${body}</div>
       </div>`;
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) this._closeDialog();
