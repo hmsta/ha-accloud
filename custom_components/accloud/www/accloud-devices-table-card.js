@@ -93,6 +93,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ["room", "Room", (row, index) => this._roomButton(row, index)],
       ["device", "Device"],
       ["firmware", "FW"],
+      ["capacity", "BTU"],
       ["online", "Online"],
       ["power", "Power"],
       ["est_watts", "Est. W"],
@@ -1263,7 +1264,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _rightAlignedColumns() {
-    return new Set(["est_watts", "today", "week", "month", "set_temp", "room_temp", "last_action", "last_activity", "number"]);
+    return new Set(["capacity", "est_watts", "today", "week", "month", "set_temp", "room_temp", "last_action", "last_activity", "number"]);
   }
 
   _centerAlignedColumns() {
