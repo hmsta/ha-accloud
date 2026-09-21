@@ -25,6 +25,9 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_get_locations)
     websocket_api.async_register_command(hass, websocket_get_location_activity)
     websocket_api.async_register_command(hass, websocket_set_location_state)
+    websocket_api.async_register_command(
+        hass, websocket_set_location_resident_password
+    )
 
 
 @websocket_api.websocket_command(
@@ -306,6 +309,44 @@ async def websocket_set_location_state(
             async_get_clientsession(hass),
             msg["location_id"],
             msg["state"],
+        )
+    except AuthenticationError:
+        connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")
+        return
+    except UnexpectedResponse as err:
+        connection.send_error(msg["id"], "request_failed", str(err))
+        return
+    except Exception as err:
+        connection.send_error(msg["id"], "unknown_error", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "accloud/set_location_resident_password",
+        vol.Required("entry_id"): str,
+        vol.Required("location_id"): str,
+        vol.Required("password"): vol.All(str, vol.Length(min=8)),
+    }
+)
+@websocket_api.async_response
+async def websocket_set_location_resident_password(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Change the resident login password for one AccCloud location."""
+    connection.require_admin()
+    client = _client_for_entry(hass, msg["entry_id"])
+    if client is None:
+        connection.send_error(msg["id"], "not_found", "Unknown AccCloud config entry")
+        return
+    try:
+        result = await client.async_set_location_resident_password(
+            async_get_clientsession(hass),
+            msg["location_id"],
+            msg["password"],
         )
     except AuthenticationError:
         connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")

@@ -115,6 +115,93 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
     };
   }
 
+  _showDetails(row) {
+    super._showDetails(row);
+    const locationId = this._locationId(row);
+    const dialogBody = this._activeDialog?.querySelector("[data-dialog-body]");
+    if (!locationId || !dialogBody || !this._hass?.user?.is_admin) return;
+    dialogBody.insertAdjacentHTML("beforeend", `
+      <section class="location-password">
+        <button class="details-action-link" data-change-location-password type="button">Change password</button>
+        <form class="location-password-form" data-location-password-form hidden>
+          <label class="location-password-label">
+            <span>New resident password</span>
+            <input data-location-password type="password" minlength="8" autocomplete="new-password" spellcheck="false" required>
+          </label>
+          <div class="location-password-actions">
+            <button class="location-password-cancel" data-location-password-cancel type="button">Cancel</button>
+            <button class="location-password-submit" type="submit">Update</button>
+          </div>
+        </form>
+        <div class="location-password-message" data-location-password-message aria-live="polite"></div>
+      </section>`);
+    this._attachLocationPasswordHandlers(locationId);
+  }
+
+  _attachLocationPasswordHandlers(locationId) {
+    const dialog = this._activeDialog;
+    const trigger = dialog?.querySelector("[data-change-location-password]");
+    const form = dialog?.querySelector("[data-location-password-form]");
+    const input = dialog?.querySelector("[data-location-password]");
+    const cancel = dialog?.querySelector("[data-location-password-cancel]");
+    const submit = form?.querySelector("button[type='submit']");
+    const message = dialog?.querySelector("[data-location-password-message]");
+    if (!trigger || !form || !input || !cancel || !submit || !message) return;
+
+    const collapse = () => {
+      input.value = "";
+      form.hidden = true;
+      trigger.hidden = false;
+    };
+    trigger.addEventListener("click", () => {
+      trigger.hidden = true;
+      form.hidden = false;
+      message.className = "location-password-message";
+      message.textContent = "";
+      input.focus();
+    });
+    cancel.addEventListener("click", () => {
+      collapse();
+      message.className = "location-password-message";
+      message.textContent = "";
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const password = input.value;
+      if (password.length < 8) {
+        message.className = "location-password-message is-error";
+        message.textContent = "Password must be at least 8 characters.";
+        input.focus();
+        return;
+      }
+      try {
+        const entryId = await this._entryId();
+        if (!entryId) throw new Error(this._error || "No AccCloud integration entry is available.");
+        input.disabled = true;
+        cancel.disabled = true;
+        submit.disabled = true;
+        message.className = "location-password-message";
+        message.textContent = "Updating...";
+        await this._hass.callWS({
+          type: "accloud/set_location_resident_password",
+          entry_id: entryId,
+          location_id: locationId,
+          password,
+        });
+        collapse();
+        message.className = "location-password-message is-ok";
+        message.textContent = "Password changed.";
+      } catch (err) {
+        message.className = "location-password-message is-error";
+        message.textContent = err.message || String(err);
+      } finally {
+        input.disabled = false;
+        cancel.disabled = false;
+        submit.disabled = false;
+      }
+    });
+  }
+
   _showLocationControl(row) {
     const locationId = this._locationId(row);
     if (!locationId) return;

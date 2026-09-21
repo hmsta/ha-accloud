@@ -150,6 +150,19 @@ class AccCloudClient:
             state,
         )
 
+    async def async_set_location_resident_password(
+        self,
+        session: aiohttp.ClientSession,
+        location_id: str,
+        password: str,
+    ) -> dict[str, Any]:
+        """Change the resident login password for one location."""
+        return await self._async_put_json(
+            session,
+            f"/api/locations/{quote(str(location_id), safe='')}/resident-password",
+            {"password": password},
+        )
+
     async def async_location_activity(
         self,
         session: aiohttp.ClientSession,
@@ -215,9 +228,27 @@ class AccCloudClient:
         path: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        return await self._async_write_json(session, "POST", path, payload)
+
+    async def _async_put_json(
+        self,
+        session: aiohttp.ClientSession,
+        path: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._async_write_json(session, "PUT", path, payload)
+
+    async def _async_write_json(
+        self,
+        session: aiohttp.ClientSession,
+        method: str,
+        path: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
         try:
-            async with session.post(
+            async with session.request(
+                method,
                 url,
                 json=payload,
                 headers={

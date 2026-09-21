@@ -1081,6 +1081,23 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .dialog-body { padding: 4px 18px 18px; }
         .details { display: grid; gap: 6px 14px; grid-template-columns: minmax(120px, max-content) 1fr; }
         .details div:nth-child(odd), .menu-title { color: var(--secondary-text-color, #666); }
+        .location-password { border-top: 1px solid var(--divider-color, #ddd); display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; }
+        .details-action-link { background: transparent; border: 0; color: var(--primary-color, #2196f3); cursor: pointer; font: inherit; justify-self: start; min-height: 28px; padding: 0; }
+        .details-action-link:hover, .details-action-link:focus-visible { outline: none; text-decoration: underline; }
+        .location-password-form { display: grid; gap: 8px; }
+        .location-password-form[hidden] { display: none; }
+        .location-password-label { display: grid; gap: 4px; }
+        .location-password-label span { color: var(--secondary-text-color, #666); font-size: 12px; }
+        .location-password-label input { background: var(--ha-card-background, var(--card-background-color, #fff)); border: 1px solid var(--divider-color, #ddd); border-radius: 8px; box-sizing: border-box; color: var(--primary-text-color, #111); font: inherit; min-height: 36px; padding: 0 10px; width: 100%; }
+        .location-password-label input:focus { border-color: var(--primary-color, #2196f3); box-shadow: 0 0 0 1px var(--primary-color, #2196f3); outline: none; }
+        .location-password-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .location-password-actions button { border-radius: 8px; cursor: pointer; font: inherit; min-height: 34px; padding: 0 14px; }
+        .location-password-cancel { background: transparent; border: 1px solid var(--divider-color, #ddd); color: var(--primary-text-color, #111); }
+        .location-password-submit { background: var(--primary-color, #2196f3); border: 0; color: var(--text-primary-color, #fff); font-weight: 700; }
+        .location-password-actions button:disabled { cursor: wait; opacity: .65; }
+        .location-password-message { color: var(--secondary-text-color, #666); font-size: 12px; min-height: 16px; }
+        .location-password-message.is-error { color: #cf222e; }
+        .location-password-message.is-ok { color: #1a7f37; }
         .menu-title { font-size: 12px; font-weight: 700; letter-spacing: 0; margin: 2px 0 8px; text-transform: uppercase; }
         .column-panel { display: grid; gap: 6px; }
         .column-panel label { align-items: center; display: flex; font-size: 13px; gap: 8px; line-height: 1.3; min-height: 28px; white-space: nowrap; }
