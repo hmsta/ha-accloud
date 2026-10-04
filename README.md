@@ -43,6 +43,16 @@ type: custom:accloud-devices-table-card
 type: custom:accloud-locations-table-card
 ```
 
+The location card's **Online ACs** count opens all devices at that location, while
+**On ACs** opens only its powered-on devices. By default it navigates to a sibling
+dashboard view named `aircon-devices`. Set an explicit local Home Assistant path
+when your devices view uses another route:
+
+```yaml
+type: custom:accloud-locations-table-card
+devices_path: /your-dashboard/your-devices-view
+```
+
 Both cards use server-side search, filtering, sorting, and pagination through
 Home Assistant websocket calls. They also keep table preferences such as visible
 columns, sort order, filters, and page size in browser local storage.

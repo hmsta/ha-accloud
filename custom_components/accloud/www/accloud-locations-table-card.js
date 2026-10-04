@@ -16,8 +16,8 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
       ["remark", "Remark"],
       ["type", "Type"],
       ["assigned", "Assigned ACs"],
-      ["online", "Online ACs"],
-      ["on", "On ACs"],
+      ["online", "Online ACs", (row) => this._deviceCountLink(row, "online")],
+      ["on", "On ACs", (row) => this._deviceCountLink(row, "on")],
       ["est_watts", "Est. W"],
       ["today", "Today kWh"],
       ["week", "Week kWh"],
@@ -115,6 +115,50 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
     return String(row?.data?.locationId || row?.id || "").trim();
   }
 
+  _deviceCountLink(row, key) {
+    const content = this._cellHtml(row, key);
+    const locationId = this._locationId(row);
+    if (!locationId) return content;
+    const location = this._rowTitle(row) || "location";
+    const power = key === "on" ? "on" : "";
+    const title = power
+      ? `View powered-on devices in ${location}`
+      : `View all devices in ${location}`;
+    return `<button class="location-devices-link" type="button" data-location-devices data-location-id="${this._escape(locationId)}" data-power="${power}" title="${this._escape(title)}" aria-label="${this._escape(title)}">${content}</button>`;
+  }
+
+  _devicesPath() {
+    const configured = String(this._config?.devices_path || "").trim();
+    if (configured.startsWith("/")) return configured;
+    const current = String(window.location.pathname || "/").replace(/\/+$/, "");
+    const parent = current.slice(0, Math.max(0, current.lastIndexOf("/") + 1));
+    return `${parent || "/"}aircon-devices`;
+  }
+
+  _hydrateDeviceCountLinks(root) {
+    root?.querySelectorAll("[data-location-devices]:not([data-location-devices-ready])").forEach((button) => {
+      button.dataset.locationDevicesReady = "1";
+      button.addEventListener("click", () => this._openDevicesForLocation(button.dataset.locationId, button.dataset.power));
+    });
+  }
+
+  _openDevicesForLocation(locationId, power) {
+    if (!locationId) return;
+    const target = new URL(this._devicesPath(), window.location.origin);
+    if (target.origin !== window.location.origin) return;
+    target.searchParams.set("accloud_location_id", locationId);
+    if (power === "on") target.searchParams.set("accloud_power", "on");
+    else target.searchParams.delete("accloud_power");
+    this._closeDialog();
+    window.history.pushState(null, "", `${target.pathname}${target.search}${target.hash}`);
+    window.dispatchEvent(new Event("location-changed"));
+  }
+
+  _refreshTable() {
+    super._refreshTable();
+    this._hydrateDeviceCountLinks(this.shadowRoot);
+  }
+
   _activityTarget(row, key) {
     if (key !== "last_activity") return null;
     const id = this._locationId(row);
@@ -130,6 +174,7 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
 
   _showDetails(row) {
     super._showDetails(row);
+    this._hydrateDeviceCountLinks(this._activeDialog);
     const locationId = this._locationId(row);
     const dialogBody = this._activeDialog?.querySelector("[data-dialog-body]");
     if (!locationId || !dialogBody || !this._hass?.user?.is_admin) return;

@@ -30,6 +30,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._resolvedEntryId = "";
     this._preferencesLoadedKey = "";
     this._activeDialog = null;
+    this._navigationFiltersApplied = false;
+    this._navigationFilterSignature = "";
+    this._locationChangedHandler = () => this._handleLocationChanged();
   }
 
   setConfig(config) {
@@ -54,6 +57,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._mobileColumns = this._validColumns(this._config.mobile_columns, this._defaultMobileColumns());
     this._setupMediaQuery();
     this._loadPreferences(true);
+    this._applyNavigationFilters();
     this._renderShell();
     this._refreshTable();
   }
@@ -74,7 +78,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
     return { columns: "full", min_columns: 4 };
   }
 
+  connectedCallback() {
+    window.addEventListener("location-changed", this._locationChangedHandler);
+    window.addEventListener("popstate", this._locationChangedHandler);
+  }
+
   disconnectedCallback() {
+    window.removeEventListener("location-changed", this._locationChangedHandler);
+    window.removeEventListener("popstate", this._locationChangedHandler);
     this._closeDialog();
     if (this._fetchTimer) window.clearTimeout(this._fetchTimer);
     if (this._refreshTimer) window.clearTimeout(this._refreshTimer);
@@ -149,11 +160,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _defaultFilters() {
-    return { status: "", power: "", filter: "" };
+    return { location: "", status: "", power: "", filter: "" };
   }
 
   _filterDefs() {
     return [
+      { key: "location", label: "Location", optionsKey: "locations", param: "location_id" },
       { key: "status", label: "Status", values: ["online", "offline"], param: "status" },
       { key: "power", label: "Power", values: ["on", "off"], param: "power" },
       { key: "filter", label: "Issue", values: ["schedule-warning", "model-warning", "old-firmware"], optionsKey: "issues", param: "filter" },
@@ -313,6 +325,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._filters = this._defaultFilters();
     this._search = "";
     this._page = 0;
+    this._clearNavigationFilterParams();
     this.shadowRoot.getElementById("search").value = "";
     this._closeOptions();
     this._refreshFilterOptions();
@@ -416,8 +429,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
       const result = await this._entryResolving;
       const entries = result.entries || [];
       if (entries.length === 1) {
-        this._resolvedEntryId = entries[0].entry_id;
-        this._loadPreferences(true);
+        const resolvedEntryId = entries[0].entry_id;
+        const entryChanged = this._resolvedEntryId !== resolvedEntryId;
+        this._resolvedEntryId = resolvedEntryId;
+        this._loadPreferences(entryChanged);
+        this._applyNavigationFilters(entryChanged);
         this._refreshColumnPicker();
         this._renderHeaders();
         this._refreshPageSize();
@@ -477,6 +493,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       select.addEventListener("change", (event) => {
         this._filters[event.target.dataset.filterKey] = event.target.value;
         this._page = 0;
+        this._syncNavigationFiltersToUrl();
         this._savePreferences();
         this._scheduleFetch(true);
       });
@@ -539,6 +556,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
       button { cursor: pointer; }
       .room-control { background: transparent; border: 0; color: var(--primary-color); font: inherit; min-height: 0; padding: 0; text-align: left; }
       .room-control:hover, .room-control:focus { text-decoration: underline; }
+      .location-devices-link { background: transparent; border: 0; color: inherit; font: inherit; min-height: 0; padding: 0; }
+      .location-devices-link:hover, .location-devices-link:focus-visible { filter: brightness(.92); outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .mobile-room-control { font-weight: 650; }
       a { color: var(--primary-color); text-decoration: none; }
       .meta, #page-info, .muted { color: var(--secondary-text-color); font-size: 12px; }
@@ -726,16 +745,26 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const select = this.shadowRoot.getElementById(`filter-${def.key}`);
     if (!select) return;
     const current = this._filters[def.key] || "";
-    const values = this._filterValues(def);
-    select.innerHTML = [`<option value="">${this._escape(def.label)}</option>`, ...values.map((value) => `<option value="${this._escape(value)}">${this._escape(this._filterLabel(value))}</option>`)].join("");
-    select.value = values.includes(current) ? current : "";
+    const choices = this._filterChoices(def);
+    if (current && !choices.some((choice) => choice.value === current)) {
+      choices.push({ value: current, label: this._filterLabel(current) });
+    }
+    select.innerHTML = [`<option value="">${this._escape(def.label)}</option>`, ...choices.map((choice) => `<option value="${this._escape(choice.value)}">${this._escape(choice.label)}</option>`)].join("");
+    select.value = current;
     this._filters[def.key] = select.value;
   }
 
-  _filterValues(def) {
+  _filterChoices(def) {
     const options = this._filterOptions[def.optionsKey || def.key];
     const values = Array.isArray(options) && options.length ? options : def.values || [];
-    return values.map((value) => String(value)).filter((value) => !def.values || def.values.includes(value));
+    return values.map((option) => {
+      if (option && typeof option === "object") {
+        const value = String(option.value ?? option.id ?? "");
+        return { value, label: String(option.label ?? option.name ?? value) };
+      }
+      const value = String(option);
+      return { value, label: this._filterLabel(value) };
+    }).filter((choice) => choice.value && (!def.values || def.values.includes(choice.value)));
   }
 
   _normalizeFilters(filters) {
@@ -1047,6 +1076,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._filters = this._defaultFilters();
     this._search = "";
     this._page = 0;
+    this._clearNavigationFilterParams();
     this.shadowRoot.getElementById("search").value = "";
     this._refreshFilterOptions();
     this._savePreferences();
@@ -1064,6 +1094,81 @@ class AccCloudDevicesTableCard extends HTMLElement {
       if (value) filters[def.param || def.key] = value;
     }
     return filters;
+  }
+
+  _navigationFilterParams() {
+    return { location: "accloud_location_id", power: "accloud_power" };
+  }
+
+  _applyNavigationFilters(force = false) {
+    if (!("location" in this._defaultFilters())) return;
+    const params = new URLSearchParams(window.location.search);
+    const names = this._navigationFilterParams();
+    const location = String(params.get(names.location) || "").trim();
+    if (!location) return;
+    const power = String(params.get(names.power) || "").trim();
+    const signature = `${location}|${power}`;
+    if (!force && this._navigationFilterSignature === signature) return;
+    this._filters = this._defaultFilters();
+    this._filters.location = location;
+    if (power === "on" || power === "off") this._filters.power = power;
+    this._search = "";
+    this._page = 0;
+    this._navigationFiltersApplied = true;
+    this._navigationFilterSignature = signature;
+  }
+
+  _handleLocationChanged() {
+    if (!this._config || !("location" in this._defaultFilters())) return;
+    const names = this._navigationFilterParams();
+    const params = new URLSearchParams(window.location.search);
+    if (String(params.get(names.location) || "").trim()) {
+      const previousSignature = this._navigationFilterSignature;
+      this._applyNavigationFilters();
+      if (previousSignature === this._navigationFilterSignature) return;
+    } else if (this._navigationFiltersApplied) {
+      this._filters = this._defaultFilters();
+      this._search = "";
+      this._page = 0;
+      this._navigationFiltersApplied = false;
+      this._navigationFilterSignature = "";
+    } else {
+      return;
+    }
+    const search = this.shadowRoot?.getElementById("search");
+    if (search) search.value = this._search;
+    this._refreshFilterOptions();
+    this._scheduleFetch(true);
+  }
+
+  _syncNavigationFiltersToUrl() {
+    if (!this._navigationFiltersApplied) return;
+    const names = this._navigationFilterParams();
+    const url = new URL(window.location.href);
+    const location = String(this._filters.location || "").trim();
+    if (!location) {
+      url.searchParams.delete(names.location);
+      url.searchParams.delete(names.power);
+      this._navigationFiltersApplied = false;
+    } else {
+      url.searchParams.set(names.location, location);
+      const power = String(this._filters.power || "").trim();
+      if (power) url.searchParams.set(names.power, power);
+      else url.searchParams.delete(names.power);
+    }
+    this._navigationFilterSignature = location ? `${location}|${String(this._filters.power || "").trim()}` : "";
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  _clearNavigationFilterParams() {
+    if (!this._navigationFiltersApplied) return;
+    const names = this._navigationFilterParams();
+    const url = new URL(window.location.href);
+    url.searchParams.delete(names.location);
+    url.searchParams.delete(names.power);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    this._navigationFiltersApplied = false;
+    this._navigationFilterSignature = "";
   }
 
   _toggleOptions() {
@@ -1104,6 +1209,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .location-password { border-top: 1px solid var(--divider-color, #ddd); display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; }
         .details-action-link { background: transparent; border: 0; color: var(--primary-color, #2196f3); cursor: pointer; font: inherit; justify-self: start; min-height: 28px; padding: 0; }
         .details-action-link:hover, .details-action-link:focus-visible { outline: none; text-decoration: underline; }
+        .location-devices-link { background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit; min-height: 0; padding: 0; }
+        .location-devices-link:hover, .location-devices-link:focus-visible { filter: brightness(.92); outline: 2px solid var(--primary-color, #2196f3); outline-offset: 2px; }
         .location-password-form { display: grid; gap: 8px; }
         .location-password-form[hidden] { display: none; }
         .location-password-label { display: grid; gap: 4px; }
