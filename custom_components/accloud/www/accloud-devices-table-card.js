@@ -819,19 +819,25 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _controlFormHtml(state, options = {}) {
     const draft = this._controlDraft(state);
-    const status = [
-      state.powerText || this._labelFor("power", draft.power),
-      state.modeLabel || this._labelFor("mode", draft.mode),
-      state.targetTempLabel ? `${state.targetTempLabel}` : "",
-    ].filter(Boolean).join(" - ");
+    const selfCleaning = String(state?.operatingState || "").toLowerCase() === "self_cleaning";
+    const status = selfCleaning
+      ? ""
+      : [
+          state.powerText || this._labelFor("power", draft.power),
+          state.modeLabel || this._labelFor("mode", draft.mode),
+          state.targetTempLabel ? `${state.targetTempLabel}` : "",
+        ].filter(Boolean).join(" - ");
     return `
-      <form class="control-form" data-control-form>
+      <form class="control-form" data-control-form data-self-cleaning="${selfCleaning ? "true" : "false"}">
         <div class="control-status">
           <div class="control-heading">
             <strong>${this._escape(state.roomTempLabel || "Room --")}</strong>
-            <span>${this._escape(status || "Current state unavailable")}</span>
+            ${status ? `<span>${this._escape(status)}</span>` : ""}
           </div>
-          <span class="pill ${state.online ? "ok" : "warn"}">${this._escape(state.onlineText || (state.online ? "online" : "offline"))}</span>
+          <div class="control-badges">
+            ${selfCleaning ? `<span class="pill cleaning">Self-cleaning</span>` : ""}
+            <span class="pill ${state.online ? "ok" : "warn"}">${this._escape(state.onlineText || (state.online ? "online" : "offline"))}</span>
+          </div>
         </div>
         <input type="hidden" name="power" value="${this._escape(draft.power)}">
         <div class="control-section">
@@ -841,7 +847,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
             <button type="button" data-power-option="on" aria-pressed="false">On</button>
           </div>
         </div>
-        <div class="control-grid">
+        <div class="control-grid" data-control-grid>
           <label class="control-field" data-mode-field><span>Mode</span><select name="mode">${this._optionsHtml(this._modeOptions(), draft.mode)}</select></label>
           <label class="control-field" data-temp-field><span>Set temp</span><select name="targetTempC">${this._tempOptionsHtml(draft.targetTempC)}</select></label>
           <label class="control-field" data-fan-field><span>Fan</span><select name="fan">${this._optionsHtml(this._fanOptions(), draft.fan)}</select></label>
@@ -884,6 +890,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
   _syncControlForm(form) {
     const powered = form.elements.power.value === "on";
     const mode = form.elements.mode.value;
+    const controlGrid = form.querySelector("[data-control-grid]");
+    if (controlGrid) controlGrid.hidden = form.dataset.selfCleaning === "true" && !powered;
     for (const button of form.querySelectorAll("[data-power-option]")) {
       const selected = button.dataset.powerOption === form.elements.power.value;
       button.classList.toggle("selected", selected);
@@ -974,7 +982,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const specialValues = new Set(this._specialOptions().map(([value]) => value));
     const temp = Math.max(17, Math.min(30, Math.round(Number(state?.targetTempC) || 24)));
     return {
-      power: String(state?.power || "").toLowerCase() === "on" ? "on" : "off",
+      power: String(state?.effectivePower ?? state?.power ?? "").toLowerCase() === "on" ? "on" : "off",
       mode: mode === "cool" && merit === "hi_power" ? "cool_plus" : this._validOption(this._modeOptions(), mode, "cool"),
       targetTempC: String(temp),
       fan: this._validOption(this._fanOptions(), fan, "auto"),
@@ -1109,7 +1117,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .control-heading { display: grid; gap: 2px; min-width: 0; }
         .control-status strong { font-size: 18px; font-weight: 600; line-height: 1.2; }
         .control-heading span { color: var(--secondary-text-color, #666); font-size: 13px; line-height: 1.3; }
+        .control-badges { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
         .control-grid { display: grid; gap: 9px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .control-grid[hidden] { display: none; }
         .control-field { display: grid; gap: 4px; min-width: 0; }
         .control-field span { color: var(--secondary-text-color, #666); font-size: 12px; line-height: 1.2; }
         .control-field select { background: var(--ha-card-background, var(--card-background-color, #fff)); border: 1px solid var(--divider-color, #ddd); border-radius: 8px; box-sizing: border-box; color: var(--primary-text-color, #111); font: inherit; min-height: 34px; padding: 0 10px; width: 100%; }
@@ -1168,6 +1178,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .temp-chart-meta { color: var(--secondary-text-color, #666); font-size: 12px; margin-top: -6px; }
         .pill { border-radius: 999px; display: inline-block; font-size: 12px; line-height: 1; padding: 4px 8px; }
         .ok { background: rgba(36, 161, 72, 0.14); color: #1a7f37; }
+        .cleaning { background: rgba(217, 119, 6, 0.14); color: var(--warning-color, #b45309); }
         .warn, .bad { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
         .light { background: rgba(127, 127, 127, 0.14); color: var(--secondary-text-color); }
         .state-icon { display: none; }
