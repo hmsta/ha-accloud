@@ -121,7 +121,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _defaultMobileColumns() {
-    return ["location", "room", "online", "power", "est_watts", "mode", "last_action", "details"];
+    return ["online", "power", "est_watts", "mode", "last_action", "details"];
   }
 
   _defaultSortKey() {
@@ -161,7 +161,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _rowTitle(row) {
-    return this._cellText(row, "room") || this._cellText(row, "device") || "Device";
+    const location = this._cellText(row, "location");
+    const room = this._cellText(row, "room");
+    const labels = location && room && location.toLowerCase() === room.toLowerCase() ? [location] : [location, room].filter(Boolean);
+    return labels.join(" - ") || this._cellText(row, "device") || "Device";
   }
 
   _activeColumns() {
@@ -257,7 +260,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _preferenceVersion() {
-    return 3;
+    return 4;
   }
 
   _migrateColumns(columns, version, defaults) {
@@ -268,7 +271,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _migrateMobileColumns(columns, version, defaults) {
-    return this._migrateColumns(columns, version, defaults);
+    const migrated = this._migrateColumns(columns, version, defaults);
+    const oldDefaults = ["location", "room", "online", "power", "est_watts", "mode", "last_action", "details"];
+    if (version < 4 && oldDefaults.length === migrated.length && oldDefaults.every((key, index) => migrated[index] === key)) {
+      return [...defaults];
+    }
+    return migrated;
   }
 
   _withNewDefaultColumns(columns, defaults, newKeys) {
