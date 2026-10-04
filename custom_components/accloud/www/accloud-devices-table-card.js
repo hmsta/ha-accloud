@@ -226,7 +226,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         this._columns = this._migrateColumns(this._validColumns(prefs.columns, this._defaultColumns()), version, this._defaultColumns());
       }
       if (Array.isArray(prefs.mobile_columns)) {
-        this._mobileColumns = this._migrateColumns(this._validColumns(prefs.mobile_columns, this._defaultMobileColumns()), version, this._defaultMobileColumns());
+        this._mobileColumns = this._migrateMobileColumns(this._validColumns(prefs.mobile_columns, this._defaultMobileColumns()), version, this._defaultMobileColumns());
       }
       if (Number.isFinite(Number(prefs.page_size))) this._pageSize = Number(prefs.page_size);
       if (Number.isFinite(Number(prefs.mobile_page_size))) this._mobilePageSize = Number(prefs.mobile_page_size);
@@ -265,6 +265,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (version < 2) migrated = this._withNewDefaultColumns(migrated, defaults, ["est_watts"]);
     if (version < 3) migrated = this._withNewDefaultColumns(migrated, defaults, ["last_action", "last_activity"]);
     return migrated;
+  }
+
+  _migrateMobileColumns(columns, version, defaults) {
+    return this._migrateColumns(columns, version, defaults);
   }
 
   _withNewDefaultColumns(columns, defaults, newKeys) {

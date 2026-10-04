@@ -39,7 +39,20 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
   }
 
   _defaultMobileColumns() {
-    return ["number", "name", "online", "on", "est_watts", "today", "last_activity", "details"];
+    return ["online", "on", "est_watts", "today", "last_activity", "details"];
+  }
+
+  _preferenceVersion() {
+    return 4;
+  }
+
+  _migrateMobileColumns(columns, version, defaults) {
+    const migrated = super._migrateMobileColumns(columns, version, defaults);
+    const oldDefaults = ["number", "name", "online", "on", "est_watts", "today", "last_activity", "details"];
+    if (version < 4 && oldDefaults.length === migrated.length && oldDefaults.every((key, index) => migrated[index] === key)) {
+      return [...defaults];
+    }
+    return migrated;
   }
 
   _defaultSortKey() {
