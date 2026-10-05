@@ -127,6 +127,7 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
     const target = new URL(this._devicesPath(), window.location.origin);
     target.searchParams.set("accloud_location_id", locationId);
     if (power) target.searchParams.set("accloud_power", power);
+    else target.searchParams.delete("accloud_power");
     const href = `${target.pathname}${target.search}${target.hash}`;
     return `<a class="location-devices-link" href="${this._escape(href)}" title="${this._escape(title)}" aria-label="${this._escape(title)}">${content}</a>`;
   }

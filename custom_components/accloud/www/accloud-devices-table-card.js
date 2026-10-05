@@ -471,9 +471,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
       if (this._shellRendered) this._refreshPageSize();
       return this._config.entry_id;
     }
-    if (!this._entryResolving) this._entryResolving = this._hass.callWS({ type: "accloud/get_entries" });
+    let resolving = this._entryResolving;
     try {
-      const result = await this._entryResolving;
+      if (!resolving) {
+        resolving = this._hass.callWS({ type: "accloud/get_entries" });
+        this._entryResolving = resolving;
+      }
+      const result = await resolving;
       const entries = result.entries || [];
       if (entries.length === 1) {
         const resolvedEntryId = entries[0].entry_id;
@@ -488,11 +492,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
         this._refreshPageSize();
         return this._resolvedEntryId;
       }
+      if (this._entryResolving === resolving) this._entryResolving = null;
       this._error = entries.length
         ? `Multiple AccCloud integrations found. Set entry_id to one of: ${entries.map((entry) => `${entry.title} (${entry.entry_id})`).join(", ")}`
         : "No loaded AccCloud integration found.";
       return "";
     } catch (err) {
+      if (this._entryResolving === resolving) this._entryResolving = null;
       this._error = err.message || String(err);
       return "";
     }
@@ -1177,7 +1183,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _finalizeNavigationCommand() {
-    if (!this._pendingNavigationCommand || !this._navigationPreferenceTargetResolved()) return false;
+    if (!this._pendingNavigationCommand || !this._navigationPreferenceTargetResolved() || !this._isNavigationViewActive()) return false;
     this._savePreferences();
     this._pendingNavigationCommand = null;
     this._removeNavigationFilterParams();
