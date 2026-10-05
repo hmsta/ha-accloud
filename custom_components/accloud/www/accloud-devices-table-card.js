@@ -30,16 +30,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._resolvedEntryId = "";
     this._preferencesLoadedKey = "";
     this._activeDialog = null;
-    this._navigationFiltersApplied = false;
-    this._navigationFilterSignature = "";
-    this._filtersBeforeNavigation = null;
+    this._pendingNavigationCommand = null;
     this._navigationViewPath = "";
     this._fetchGeneration = 0;
     this._locationChangedHandler = () => this._handleLocationChanged();
   }
 
   setConfig(config) {
-    const persistentFilters = this._persistentFilters();
     this._config = {
       page_size: 25,
       mobile_page_size: 10,
@@ -60,13 +57,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._columns = this._validColumns(this._config.columns, this._defaultColumns());
     this._mobileColumns = this._validColumns(this._config.mobile_columns, this._defaultMobileColumns());
     this._setupMediaQuery();
-    this._resetNavigationFilterTracking();
-    this._filters = persistentFilters;
     this._loadPreferences(true);
     if ("location" in this._defaultFilters() && !this._navigationViewPath) {
       this._navigationViewPath = this._normalizedPath(window.location.pathname);
     }
-    this._syncNavigationFiltersFromUrl();
+    this._stageNavigationCommandFromUrl();
     this._renderShell();
     this._refreshTable();
   }
@@ -91,7 +86,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     window.addEventListener("location-changed", this._locationChangedHandler);
     window.addEventListener("popstate", this._locationChangedHandler);
     if (this._config && this._isNavigationViewActive()) {
-      const changed = this._syncNavigationFiltersFromUrl(true);
+      const changed = this._stageNavigationCommandFromUrl();
       if (changed) {
         this._refreshNavigationFilterControls();
         this._clearRowsForNavigation();
@@ -276,7 +271,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _savePreferences() {
     if (!this._config.remember_preferences) return;
-    const filters = this._persistentFilters();
     try {
       window.localStorage.setItem(this._storageKey(), JSON.stringify({
         version: this._preferenceVersion(),
@@ -286,18 +280,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
         mobile_page_size: this._mobilePageSize,
         sort_key: this._sortKey,
         sort_dir: this._sortDir,
-        filters,
+        filters: this._normalizeFilters(this._filters),
       }));
     } catch (_) {
       // Browser storage can be unavailable in restricted web views.
     }
-  }
-
-  _persistentFilters() {
-    const filters = this._navigationFiltersApplied
-      ? this._filtersBeforeNavigation || this._defaultFilters()
-      : this._filters;
-    return this._normalizeFilters(filters);
   }
 
   _preferenceVersion() {
@@ -354,7 +341,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._filters = this._defaultFilters();
     this._search = "";
     this._page = 0;
-    this._clearNavigationFilterParams();
     this.shadowRoot.getElementById("search").value = "";
     this._closeOptions();
     this._refreshFilterOptions();
@@ -478,7 +464,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   async _entryId() {
     if (this._config.entry_id) {
+      const navigationState = this._pendingNavigationState();
       this._loadPreferences();
+      this._restorePendingNavigationState(navigationState);
+      if (this._finalizeNavigationCommand()) this._refreshNavigationFilterControls();
       if (this._shellRendered) this._refreshPageSize();
       return this._config.entry_id;
     }
@@ -490,13 +479,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
         const resolvedEntryId = entries[0].entry_id;
         const entryChanged = this._resolvedEntryId !== resolvedEntryId;
         this._resolvedEntryId = resolvedEntryId;
-        if (entryChanged) {
-          const persistentFilters = this._persistentFilters();
-          this._resetNavigationFilterTracking();
-          this._filters = persistentFilters;
-        }
+        const navigationState = this._pendingNavigationState();
         this._loadPreferences(entryChanged);
-        this._syncNavigationFiltersFromUrl(entryChanged);
+        this._restorePendingNavigationState(navigationState);
+        if (this._finalizeNavigationCommand()) this._refreshNavigationFilterControls();
         this._refreshColumnPicker();
         this._renderHeaders();
         this._refreshPageSize();
@@ -556,7 +542,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
       select.addEventListener("change", (event) => {
         this._filters[event.target.dataset.filterKey] = event.target.value;
         this._page = 0;
-        this._syncNavigationFiltersToUrl();
         this._savePreferences();
         this._scheduleFetch(true);
       });
@@ -1139,7 +1124,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._filters = this._defaultFilters();
     this._search = "";
     this._page = 0;
-    this._clearNavigationFilterParams();
     this.shadowRoot.getElementById("search").value = "";
     this._refreshFilterOptions();
     this._savePreferences();
@@ -1163,24 +1147,61 @@ class AccCloudDevicesTableCard extends HTMLElement {
     return { location: "accloud_location_id", power: "accloud_power" };
   }
 
-  _applyNavigationFilters(force = false) {
-    if (!("location" in this._defaultFilters())) return;
+  _stageNavigationCommandFromUrl() {
+    if (!("location" in this._defaultFilters()) || !this._isNavigationViewActive()) return false;
     const params = new URLSearchParams(window.location.search);
     const names = this._navigationFilterParams();
+    if (!params.has(names.location) && !params.has(names.power)) return false;
     const location = String(params.get(names.location) || "").trim();
-    if (!location) return false;
+    if (!location) {
+      this._pendingNavigationCommand = null;
+      this._removeNavigationFilterParams();
+      return false;
+    }
     const power = String(params.get(names.power) || "").trim();
-    const signature = `${location}|${power}`;
-    if (!force && this._navigationFilterSignature === signature) return false;
-    if (!this._navigationFiltersApplied) this._filtersBeforeNavigation = { ...this._filters };
+    this._pendingNavigationCommand = {
+      location,
+      power: power === "on" || power === "off" ? power : "",
+    };
+    this._applyNavigationCommand(this._pendingNavigationCommand);
+    this._finalizeNavigationCommand();
+    return true;
+  }
+
+  _applyNavigationCommand(command) {
     this._filters = this._defaultFilters();
-    this._filters.location = location;
-    if (power === "on" || power === "off") this._filters.power = power;
+    this._filters.location = command.location;
+    if (command.power) this._filters.power = command.power;
     this._search = "";
     this._page = 0;
-    this._navigationFiltersApplied = true;
-    this._navigationFilterSignature = signature;
+  }
+
+  _finalizeNavigationCommand() {
+    if (!this._pendingNavigationCommand || !this._navigationPreferenceTargetResolved()) return false;
+    this._savePreferences();
+    this._pendingNavigationCommand = null;
+    this._removeNavigationFilterParams();
     return true;
+  }
+
+  _pendingNavigationState() {
+    if (!this._pendingNavigationCommand) return null;
+    return {
+      filters: { ...this._filters },
+      search: this._search,
+      page: this._page,
+    };
+  }
+
+  _restorePendingNavigationState(state) {
+    if (!state) return;
+    this._filters = this._normalizeFilters(state.filters);
+    this._search = state.search;
+    this._page = state.page;
+  }
+
+  _navigationPreferenceTargetResolved() {
+    return Boolean(this._config?.entry_id || this._resolvedEntryId);
   }
 
   _handleLocationChanged() {
@@ -1189,7 +1210,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       this._invalidateFetches();
       return;
     }
-    if (!this._syncNavigationFiltersFromUrl()) return;
+    if (!this._stageNavigationCommandFromUrl()) return;
     this._refreshNavigationFilterControls();
     this._clearRowsForNavigation();
     this._scheduleFetch(true);
@@ -1202,19 +1223,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._pageCount = 1;
     this._error = "";
     this._refreshTable();
-  }
-
-  _syncNavigationFiltersFromUrl(force = false) {
-    if (!("location" in this._defaultFilters())) return false;
-    const names = this._navigationFilterParams();
-    const params = new URLSearchParams(window.location.search);
-    if (String(params.get(names.location) || "").trim()) return this._applyNavigationFilters(force);
-    if (!this._navigationFiltersApplied) return false;
-    this._filters = this._normalizeFilters(this._filtersBeforeNavigation || this._defaultFilters());
-    this._search = "";
-    this._page = 0;
-    this._resetNavigationFilterTracking();
-    return true;
   }
 
   _refreshNavigationFilterControls() {
@@ -1233,12 +1241,6 @@ class AccCloudDevicesTableCard extends HTMLElement {
     return this._normalizedPath(window.location.pathname) === this._navigationViewPath;
   }
 
-  _resetNavigationFilterTracking() {
-    this._navigationFiltersApplied = false;
-    this._navigationFilterSignature = "";
-    this._filtersBeforeNavigation = null;
-  }
-
   _invalidateFetches() {
     this._fetchGeneration += 1;
     this._fetchQueued = false;
@@ -1246,33 +1248,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._fetchTimer = null;
   }
 
-  _syncNavigationFiltersToUrl() {
-    if (!this._navigationFiltersApplied) return;
+  _removeNavigationFilterParams() {
     const names = this._navigationFilterParams();
     const url = new URL(window.location.href);
-    const location = String(this._filters.location || "").trim();
-    if (!location) {
-      url.searchParams.delete(names.location);
-      url.searchParams.delete(names.power);
-      this._resetNavigationFilterTracking();
-    } else {
-      url.searchParams.set(names.location, location);
-      const power = String(this._filters.power || "").trim();
-      if (power) url.searchParams.set(names.power, power);
-      else url.searchParams.delete(names.power);
-    }
-    this._navigationFilterSignature = location ? `${location}|${String(this._filters.power || "").trim()}` : "";
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-  }
-
-  _clearNavigationFilterParams() {
-    if (!this._navigationFiltersApplied) return;
-    const names = this._navigationFilterParams();
-    const url = new URL(window.location.href);
+    if (!url.searchParams.has(names.location) && !url.searchParams.has(names.power)) return;
     url.searchParams.delete(names.location);
     url.searchParams.delete(names.power);
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    this._resetNavigationFilterTracking();
   }
 
   _toggleOptions() {

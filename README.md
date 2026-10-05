@@ -53,6 +53,11 @@ type: custom:accloud-locations-table-card
 devices_path: /your-dashboard/your-devices-view
 ```
 
+Location links reset the device search and filters, apply the selected location
+and optional power state, and save those values as the normal device-table
+filters. The navigation parameters are removed from the URL after they are
+applied. `devices_path` must resolve to a local Home Assistant path.
+
 Both cards use server-side search, filtering, sorting, and pagination through
 Home Assistant websocket calls. They also keep table preferences such as visible
 columns, sort order, filters, and page size in browser local storage.

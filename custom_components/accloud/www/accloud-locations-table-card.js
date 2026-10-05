@@ -133,7 +133,12 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
 
   _devicesPath() {
     const configured = String(this._config?.devices_path || "").trim();
-    if (configured.startsWith("/")) return configured;
+    if (configured.startsWith("/") && !configured.startsWith("//")) {
+      const target = new URL(configured, window.location.origin);
+      if (target.origin === window.location.origin) {
+        return `${target.pathname}${target.search}${target.hash}`;
+      }
+    }
     const current = String(window.location.pathname || "/").replace(/\/+$/, "");
     const parent = current.slice(0, Math.max(0, current.lastIndexOf("/") + 1));
     return `${parent || "/"}aircon-devices`;
