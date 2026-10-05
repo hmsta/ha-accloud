@@ -39,6 +39,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   setConfig(config) {
+    const persistentFilters = this._persistentFilters();
     this._config = {
       page_size: 25,
       mobile_page_size: 10,
@@ -60,6 +61,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._mobileColumns = this._validColumns(this._config.mobile_columns, this._defaultMobileColumns());
     this._setupMediaQuery();
     this._resetNavigationFilterTracking();
+    this._filters = persistentFilters;
     this._loadPreferences(true);
     if ("location" in this._defaultFilters() && !this._navigationViewPath) {
       this._navigationViewPath = this._normalizedPath(window.location.pathname);
@@ -274,9 +276,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _savePreferences() {
     if (!this._config.remember_preferences) return;
-    const filters = this._navigationFiltersApplied
-      ? this._filtersBeforeNavigation || this._defaultFilters()
-      : this._filters;
+    const filters = this._persistentFilters();
     try {
       window.localStorage.setItem(this._storageKey(), JSON.stringify({
         version: this._preferenceVersion(),
@@ -291,6 +291,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
     } catch (_) {
       // Browser storage can be unavailable in restricted web views.
     }
+  }
+
+  _persistentFilters() {
+    const filters = this._navigationFiltersApplied
+      ? this._filtersBeforeNavigation || this._defaultFilters()
+      : this._filters;
+    return this._normalizeFilters(filters);
   }
 
   _preferenceVersion() {
@@ -403,6 +410,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     }
     this._fetchInFlight = true;
     const generation = this._fetchGeneration;
+    let requestSignature = "";
     let refresh = false;
     try {
       const entryId = await this._entryId();
@@ -411,7 +419,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         return;
       }
       if (generation !== this._fetchGeneration || !this.isConnected) return;
-      const requestSignature = this._fetchRequestSignature();
+      requestSignature = this._fetchRequestSignature();
       const result = await this._hass.callWS({
         type: this._websocketType(),
         entry_id: entryId,
@@ -434,7 +442,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
       this._refreshPageSize();
       refresh = true;
     } catch (err) {
-      if (generation === this._fetchGeneration && this.isConnected) {
+      const signatureIsCurrent = !requestSignature || requestSignature === this._fetchRequestSignature();
+      if (generation === this._fetchGeneration && this.isConnected && signatureIsCurrent) {
         this._error = err.message || String(err);
         refresh = true;
       }
@@ -481,7 +490,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
         const resolvedEntryId = entries[0].entry_id;
         const entryChanged = this._resolvedEntryId !== resolvedEntryId;
         this._resolvedEntryId = resolvedEntryId;
-        if (entryChanged) this._resetNavigationFilterTracking();
+        if (entryChanged) {
+          const persistentFilters = this._persistentFilters();
+          this._resetNavigationFilterTracking();
+          this._filters = persistentFilters;
+        }
         this._loadPreferences(entryChanged);
         this._syncNavigationFiltersFromUrl(entryChanged);
         this._refreshColumnPicker();
