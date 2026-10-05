@@ -32,6 +32,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._activeDialog = null;
     this._navigationFiltersApplied = false;
     this._navigationFilterSignature = "";
+    this._filtersBeforeNavigation = null;
+    this._navigationViewPath = "";
+    this._fetchGeneration = 0;
     this._locationChangedHandler = () => this._handleLocationChanged();
   }
 
@@ -56,8 +59,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._columns = this._validColumns(this._config.columns, this._defaultColumns());
     this._mobileColumns = this._validColumns(this._config.mobile_columns, this._defaultMobileColumns());
     this._setupMediaQuery();
+    this._resetNavigationFilterTracking();
     this._loadPreferences(true);
-    this._applyNavigationFilters();
+    if ("location" in this._defaultFilters() && !this._navigationViewPath) {
+      this._navigationViewPath = this._normalizedPath(window.location.pathname);
+    }
+    this._syncNavigationFiltersFromUrl();
     this._renderShell();
     this._refreshTable();
   }
@@ -81,6 +88,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
   connectedCallback() {
     window.addEventListener("location-changed", this._locationChangedHandler);
     window.addEventListener("popstate", this._locationChangedHandler);
+    if (this._config && this._isNavigationViewActive()) {
+      const changed = this._syncNavigationFiltersFromUrl(true);
+      if (changed) {
+        this._refreshNavigationFilterControls();
+        this._clearRowsForNavigation();
+      }
+      this._scheduleFetch(true);
+    }
   }
 
   disconnectedCallback() {
@@ -89,6 +104,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._closeDialog();
     if (this._fetchTimer) window.clearTimeout(this._fetchTimer);
     if (this._refreshTimer) window.clearTimeout(this._refreshTimer);
+    this._fetchTimer = null;
+    this._refreshTimer = null;
+    this._fetchQueued = false;
+    this._fetchGeneration += 1;
   }
 
   static getStubConfig() {
@@ -255,6 +274,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _savePreferences() {
     if (!this._config.remember_preferences) return;
+    const filters = this._navigationFiltersApplied
+      ? this._filtersBeforeNavigation || this._defaultFilters()
+      : this._filters;
     try {
       window.localStorage.setItem(this._storageKey(), JSON.stringify({
         version: this._preferenceVersion(),
@@ -264,7 +286,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         mobile_page_size: this._mobilePageSize,
         sort_key: this._sortKey,
         sort_dir: this._sortDir,
-        filters: this._filters,
+        filters,
       }));
     } catch (_) {
       // Browser storage can be unavailable in restricted web views.
@@ -353,6 +375,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _scheduleFetch(immediate = false) {
     if (!this._hass) return;
+    if (this._config && !this._isNavigationViewActive()) return;
+    if (immediate) this._fetchGeneration += 1;
     if (this._fetchInFlight) {
       if (immediate) this._fetchQueued = true;
       return;
@@ -378,9 +402,16 @@ class AccCloudDevicesTableCard extends HTMLElement {
       return;
     }
     this._fetchInFlight = true;
+    const generation = this._fetchGeneration;
+    let refresh = false;
     try {
       const entryId = await this._entryId();
-      if (!entryId) return;
+      if (!entryId) {
+        refresh = generation === this._fetchGeneration && this.isConnected;
+        return;
+      }
+      if (generation !== this._fetchGeneration || !this.isConnected) return;
+      const requestSignature = this._fetchRequestSignature();
       const result = await this._hass.callWS({
         type: this._websocketType(),
         entry_id: entryId,
@@ -391,6 +422,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         sort_dir: this._sortDir,
         filters: this._apiFilters(),
       });
+      if (generation !== this._fetchGeneration || !this.isConnected || requestSignature !== this._fetchRequestSignature()) return;
       this._rows = result[this._responseKey()] || [];
       this._page = Number(result.page || 0);
       this._totalRows = Number(result.total || 0);
@@ -400,17 +432,34 @@ class AccCloudDevicesTableCard extends HTMLElement {
       this._error = "";
       this._refreshFilterOptions();
       this._refreshPageSize();
+      refresh = true;
     } catch (err) {
-      this._error = err.message || String(err);
+      if (generation === this._fetchGeneration && this.isConnected) {
+        this._error = err.message || String(err);
+        refresh = true;
+      }
     } finally {
-      this._lastFetch = Date.now();
       this._fetchInFlight = false;
-      this._refreshTable();
+      if (refresh) {
+        this._lastFetch = Date.now();
+        this._refreshTable();
+      }
       if (this._fetchQueued) {
         this._fetchQueued = false;
         this._scheduleFetch(true);
       }
     }
+  }
+
+  _fetchRequestSignature() {
+    return JSON.stringify({
+      page: this._page,
+      pageSize: this._activePageSize(),
+      search: this._search,
+      sortKey: this._sortKey,
+      sortDir: this._sortDir,
+      filters: this._apiFilters(),
+    });
   }
 
   _autoRefreshMs() {
@@ -432,8 +481,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
         const resolvedEntryId = entries[0].entry_id;
         const entryChanged = this._resolvedEntryId !== resolvedEntryId;
         this._resolvedEntryId = resolvedEntryId;
+        if (entryChanged) this._resetNavigationFilterTracking();
         this._loadPreferences(entryChanged);
-        this._applyNavigationFilters(entryChanged);
+        this._syncNavigationFiltersFromUrl(entryChanged);
         this._refreshColumnPicker();
         this._renderHeaders();
         this._refreshPageSize();
@@ -1105,10 +1155,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const params = new URLSearchParams(window.location.search);
     const names = this._navigationFilterParams();
     const location = String(params.get(names.location) || "").trim();
-    if (!location) return;
+    if (!location) return false;
     const power = String(params.get(names.power) || "").trim();
     const signature = `${location}|${power}`;
-    if (!force && this._navigationFilterSignature === signature) return;
+    if (!force && this._navigationFilterSignature === signature) return false;
+    if (!this._navigationFiltersApplied) this._filtersBeforeNavigation = { ...this._filters };
     this._filters = this._defaultFilters();
     this._filters.location = location;
     if (power === "on" || power === "off") this._filters.power = power;
@@ -1116,29 +1167,70 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._page = 0;
     this._navigationFiltersApplied = true;
     this._navigationFilterSignature = signature;
+    return true;
   }
 
   _handleLocationChanged() {
     if (!this._config || !("location" in this._defaultFilters())) return;
-    const names = this._navigationFilterParams();
-    const params = new URLSearchParams(window.location.search);
-    if (String(params.get(names.location) || "").trim()) {
-      const previousSignature = this._navigationFilterSignature;
-      this._applyNavigationFilters();
-      if (previousSignature === this._navigationFilterSignature) return;
-    } else if (this._navigationFiltersApplied) {
-      this._filters = this._defaultFilters();
-      this._search = "";
-      this._page = 0;
-      this._navigationFiltersApplied = false;
-      this._navigationFilterSignature = "";
-    } else {
+    if (!this._isNavigationViewActive()) {
+      this._invalidateFetches();
       return;
     }
+    if (!this._syncNavigationFiltersFromUrl()) return;
+    this._refreshNavigationFilterControls();
+    this._clearRowsForNavigation();
+    this._scheduleFetch(true);
+  }
+
+  _clearRowsForNavigation() {
+    this._rows = [];
+    this._totalRows = 0;
+    this._filteredCount = 0;
+    this._pageCount = 1;
+    this._error = "";
+    this._refreshTable();
+  }
+
+  _syncNavigationFiltersFromUrl(force = false) {
+    if (!("location" in this._defaultFilters())) return false;
+    const names = this._navigationFilterParams();
+    const params = new URLSearchParams(window.location.search);
+    if (String(params.get(names.location) || "").trim()) return this._applyNavigationFilters(force);
+    if (!this._navigationFiltersApplied) return false;
+    this._filters = this._normalizeFilters(this._filtersBeforeNavigation || this._defaultFilters());
+    this._search = "";
+    this._page = 0;
+    this._resetNavigationFilterTracking();
+    return true;
+  }
+
+  _refreshNavigationFilterControls() {
     const search = this.shadowRoot?.getElementById("search");
     if (search) search.value = this._search;
     this._refreshFilterOptions();
-    this._scheduleFetch(true);
+  }
+
+  _normalizedPath(path) {
+    const normalized = String(path || "/").replace(/\/+$/, "");
+    return normalized || "/";
+  }
+
+  _isNavigationViewActive() {
+    if (!this._navigationViewPath) return true;
+    return this._normalizedPath(window.location.pathname) === this._navigationViewPath;
+  }
+
+  _resetNavigationFilterTracking() {
+    this._navigationFiltersApplied = false;
+    this._navigationFilterSignature = "";
+    this._filtersBeforeNavigation = null;
+  }
+
+  _invalidateFetches() {
+    this._fetchGeneration += 1;
+    this._fetchQueued = false;
+    if (this._fetchTimer) window.clearTimeout(this._fetchTimer);
+    this._fetchTimer = null;
   }
 
   _syncNavigationFiltersToUrl() {
@@ -1149,7 +1241,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (!location) {
       url.searchParams.delete(names.location);
       url.searchParams.delete(names.power);
-      this._navigationFiltersApplied = false;
+      this._resetNavigationFilterTracking();
     } else {
       url.searchParams.set(names.location, location);
       const power = String(this._filters.power || "").trim();
@@ -1167,8 +1259,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     url.searchParams.delete(names.location);
     url.searchParams.delete(names.power);
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    this._navigationFiltersApplied = false;
-    this._navigationFilterSignature = "";
+    this._resetNavigationFilterTracking();
   }
 
   _toggleOptions() {
