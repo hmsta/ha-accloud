@@ -158,6 +158,10 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
     };
   }
 
+  _hiddenDetailsColumns() {
+    return new Set(["details", "actions"]);
+  }
+
   _showDetails(row) {
     super._showDetails(row);
     const locationId = this._locationId(row);

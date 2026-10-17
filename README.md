@@ -71,6 +71,35 @@ mobile_page_size: 10
 refresh_interval_ms: 60000
 ```
 
+Use fixed server-side filters and the optional display controls for a compact
+read-only list. This example shows every offline AC with only its combined
+location/room name and status:
+
+```yaml
+type: custom:accloud-devices-table-card
+fixed_filters:
+  status: offline
+columns:
+  - name
+  - status
+mobile_columns:
+  - status
+show_toolbar: false
+show_table_header: false
+show_details: false
+show_controls: false
+show_meta: false
+show_pager: false
+page_size: 0
+mobile_page_size: 0
+remember_preferences: false
+```
+
+`fixed_filters` accepts the same filter keys as the card controls and sends
+them with every server-side request. Fixed filters are not shown in the toolbar
+and cannot be removed by **Clear**. A page size of `0` requests all matching
+rows.
+
 If you have more than one AccCloud integration entry, set `entry_id` explicitly:
 
 ```yaml

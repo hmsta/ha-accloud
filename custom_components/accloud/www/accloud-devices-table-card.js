@@ -37,6 +37,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   setConfig(config) {
+    this._shellRendered = false;
     this._config = {
       page_size: 25,
       mobile_page_size: 10,
@@ -46,18 +47,26 @@ class AccCloudDevicesTableCard extends HTMLElement {
       remember_preferences: true,
       refresh_interval_ms: 60000,
       search_debounce_ms: 150,
+      fixed_filters: {},
+      show_toolbar: true,
+      show_table_header: true,
+      show_details: true,
+      show_controls: true,
+      show_meta: true,
+      show_pager: true,
       columns: this._defaultColumns(),
       mobile_columns: this._defaultMobileColumns(),
       ...config,
     };
-    this._pageSize = Number(this._config.page_size) || 25;
-    this._mobilePageSize = Number(this._config.mobile_page_size) || 10;
+    this._pageSize = this._configuredPageSize(this._config.page_size, 25);
+    this._mobilePageSize = this._configuredPageSize(this._config.mobile_page_size, 10);
     this._sortKey = this._config.default_sort_key || this._defaultSortKey();
     this._sortDir = this._config.default_sort_dir === -1 ? -1 : 1;
     this._columns = this._validColumns(this._config.columns, this._defaultColumns());
     this._mobileColumns = this._validColumns(this._config.mobile_columns, this._defaultMobileColumns());
     this._setupMediaQuery();
     this._loadPreferences(true);
+    this._filters = this._normalizeFilters(this._filters);
     if ("location" in this._defaultFilters() && !this._navigationViewPath) {
       this._navigationViewPath = this._normalizedPath(window.location.pathname);
     }
@@ -115,12 +124,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (this._columnDefsCache) return this._columnDefsCache;
     this._columnDefsCache = [
       ["details", "More", (_row, index) => this._detailsButton(index), () => ""],
+      ["name", "Name", (row) => this._escape(this._rowTitle(row)), (row) => this._rowTitle(row)],
       ["location", "Location"],
       ["remark", "Remark"],
       ["room", "Room", (row, index) => this._roomButton(row, index)],
       ["device", "Device"],
       ["firmware", "FW"],
       ["capacity", "BTU"],
+      ["status", "Status", (row) => this._cellHtml(row, "online"), (row) => this._cellValue(row, "online")],
       ["online", "Online"],
       ["power", "Power"],
       ["est_watts", "Est. W"],
@@ -217,6 +228,27 @@ class AccCloudDevicesTableCard extends HTMLElement {
     else this._pageSize = value;
   }
 
+  _configuredPageSize(value, fallback) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  }
+
+  _showDetailsColumn() {
+    return this._config?.show_details !== false;
+  }
+
+  _fixedFilters() {
+    const configured = this._config?.fixed_filters;
+    if (!configured || typeof configured !== "object" || Array.isArray(configured)) return {};
+    const fixed = {};
+    for (const key of Object.keys(this._defaultFilters())) {
+      if (configured[key] == null) continue;
+      const value = String(configured[key]).trim();
+      if (value) fixed[key] = value;
+    }
+    return fixed;
+  }
+
   _setupMediaQuery() {
     if (this._mediaQuery || !window.matchMedia) {
       this._isMobile = window.innerWidth <= 760;
@@ -271,6 +303,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _savePreferences() {
     if (!this._config.remember_preferences) return;
+    const filters = this._normalizeFilters(this._filters);
+    for (const key of Object.keys(this._fixedFilters())) delete filters[key];
     try {
       window.localStorage.setItem(this._storageKey(), JSON.stringify({
         version: this._preferenceVersion(),
@@ -280,7 +314,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         mobile_page_size: this._mobilePageSize,
         sort_key: this._sortKey,
         sort_dir: this._sortDir,
-        filters: this._normalizeFilters(this._filters),
+        filters,
       }));
     } catch (_) {
       // Browser storage can be unavailable in restricted web views.
@@ -322,7 +356,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       }
       merged.splice(insertAt, 0, key);
     }
-    merged.push("details");
+    if (this._showDetailsColumn()) merged.push("details");
     return merged;
   }
 
@@ -334,11 +368,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
     }
     this._columns = this._validColumns(this._config.columns, this._defaultColumns());
     this._mobileColumns = this._validColumns(this._config.mobile_columns, this._defaultMobileColumns());
-    this._pageSize = Number(this._config.page_size) || 25;
-    this._mobilePageSize = Number(this._config.mobile_page_size) || 10;
+    this._pageSize = this._configuredPageSize(this._config.page_size, 25);
+    this._mobilePageSize = this._configuredPageSize(this._config.mobile_page_size, 10);
     this._sortKey = this._config.default_sort_key || this._defaultSortKey();
     this._sortDir = this._config.default_sort_dir === -1 ? -1 : 1;
-    this._filters = this._defaultFilters();
+    this._filters = this._normalizeFilters(this._defaultFilters());
     this._search = "";
     this._page = 0;
     this.shadowRoot.getElementById("search").value = "";
@@ -362,7 +396,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         if (valid.has(key) && key !== "details" && !normalized.includes(key)) normalized.push(key);
       }
     }
-    normalized.push("details");
+    if (this._showDetailsColumn()) normalized.push("details");
     return normalized;
   }
 
@@ -412,7 +446,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         page: this._page,
         page_size: this._activePageSize(),
         search: this._search,
-        sort_key: this._sortKey,
+        sort_key: this._apiSortKey(),
         sort_dir: this._sortDir,
         filters: this._apiFilters(),
       });
@@ -509,7 +543,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <ha-card>
         <div class="wrap">
-          <div class="toolbar">
+          <div class="toolbar" ${this._config.show_toolbar === false ? "hidden" : ""}>
             <input id="search" type="search" placeholder="${this._escape(this._searchPlaceholder())}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
             ${this._filterControlsHtml()}
             <button id="clear-filters" type="button" hidden>Clear</button>
@@ -522,15 +556,15 @@ class AccCloudDevicesTableCard extends HTMLElement {
               </button>
             </div>
           </div>
-          <div id="meta" class="meta"></div>
+          <div id="meta" class="meta" ${this._config.show_meta === false ? "hidden" : ""}></div>
           <div class="table-wrap">
             <table>
-              <thead><tr id="headers"></tr></thead>
+              <thead ${this._config.show_table_header === false ? "hidden" : ""}><tr id="headers"></tr></thead>
               <tbody id="rows"></tbody>
             </table>
           </div>
           <div class="mobile-list" id="mobile-rows"></div>
-          <div class="pager">
+          <div class="pager" ${this._config.show_pager === false ? "hidden" : ""}>
             <button id="prev" type="button">Prev</button>
             <span id="page-info"></span>
             <button id="next" type="button">Next</button>
@@ -597,6 +631,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _styles() {
     return `<style>
+      [hidden] { display: none !important; }
       :host { display: block; min-width: 0; width: 100%; }
       ha-card { display: block; max-width: 100%; overflow: hidden; width: 100%; }
       ha-card, .wrap, table, th, td, button, .mobile-list, .details { -webkit-user-select: text; user-select: text; }
@@ -765,7 +800,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _mobileRow(row, index, defs, columns) {
     const main = this._rowTitle(row);
-    const mainHtml = this._rowHasControl(row)
+    const mainHtml = this._config?.show_controls !== false && this._rowHasControl(row)
       ? this._rowControlButton(row, index, main, "mobile-room-control")
       : `<strong>${this._escape(main)}</strong>`;
     const fields = columns.filter((key) => key !== "details");
@@ -773,10 +808,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
       <div class="mobile-row">
         <div class="mobile-main">
           ${mainHtml}
-          ${this._detailsButton(index)}
+          ${this._showDetailsColumn() ? this._detailsButton(index) : ""}
         </div>
         <div class="mobile-fields">
-          ${fields.map((key) => `<div class="mobile-field"><span class="mobile-label">${this._escape(defs.get(key).label)}</span><span class="mobile-value">${defs.get(key).render(row, index)}</span></div>`).join("")}
+          ${fields.map((key) => `<div class="mobile-field">${this._config.show_table_header === false ? "" : `<span class="mobile-label">${this._escape(defs.get(key).label)}</span>`}<span class="mobile-value">${defs.get(key).render(row, index)}</span></div>`).join("")}
         </div>
       </div>`;
   }
@@ -790,7 +825,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _filterControlsHtml() {
+    const fixed = this._fixedFilters();
     return this._filterDefs()
+      .filter((def) => !(def.key in fixed))
       .map((def) => `<select id="filter-${this._escape(def.key)}" data-filter-key="${this._escape(def.key)}" aria-label="${this._escape(def.label)}"></select>`)
       .join("");
   }
@@ -823,11 +860,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _normalizeFilters(filters) {
     const normalized = { ...this._defaultFilters() };
-    if (!filters || typeof filters !== "object") return normalized;
-    for (const key of Object.keys(normalized)) {
-      if (typeof filters[key] === "string") normalized[key] = filters[key];
+    if (filters && typeof filters === "object") {
+      for (const key of Object.keys(normalized)) {
+        if (typeof filters[key] === "string") normalized[key] = filters[key];
+      }
     }
-    if (typeof filters.filter === "string") {
+    if (typeof filters?.filter === "string") {
       if ("status" in normalized && (filters.filter === "online" || filters.filter === "offline") && !normalized.status) {
         normalized.status = filters.filter;
         normalized.filter = "";
@@ -836,6 +874,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         normalized.filter = "";
       }
     }
+    Object.assign(normalized, this._fixedFilters());
     return normalized;
   }
 
@@ -879,7 +918,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _hiddenDetailsColumns() {
-    return new Set(["details", "actions"]);
+    return new Set(["details", "actions", "name", "status"]);
   }
 
   async _showControl(row) {
@@ -1127,7 +1166,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _clearFilters() {
-    this._filters = this._defaultFilters();
+    this._filters = this._normalizeFilters(this._defaultFilters());
     this._search = "";
     this._page = 0;
     this.shadowRoot.getElementById("search").value = "";
@@ -1137,7 +1176,12 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _hasActiveFilters() {
-    return Boolean(this._search.trim() || Object.values(this._filters).some((value) => value));
+    const fixed = this._fixedFilters();
+    return Boolean(this._search.trim() || Object.entries(this._filters).some(([key, value]) => value && !(key in fixed)));
+  }
+
+  _apiSortKey() {
+    return { name: "location", status: "online" }[this._sortKey] || this._sortKey;
   }
 
   _apiFilters() {
@@ -1178,6 +1222,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._filters = this._defaultFilters();
     this._filters.location = command.location;
     if (command.power) this._filters.power = command.power;
+    this._filters = this._normalizeFilters(this._filters);
     this._search = "";
     this._page = 0;
   }
@@ -1462,6 +1507,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _rowControlButton(row, index, label, extraClass = "") {
+    if (this._config?.show_controls === false) return this._escape(label);
     const className = ["room-control", extraClass].filter(Boolean).join(" ");
     return `<button class="${this._escape(className)}" type="button" data-control="${index}" title="Control ${this._escape(label)}">${this._escape(label)}</button>`;
   }
