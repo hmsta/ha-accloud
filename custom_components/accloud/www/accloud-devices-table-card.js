@@ -54,6 +54,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       show_controls: true,
       show_meta: true,
       show_pager: true,
+      mobile_layout: "cards",
       columns: this._defaultColumns(),
       mobile_columns: this._defaultMobileColumns(),
       ...config,
@@ -235,6 +236,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _showDetailsColumn() {
     return this._config?.show_details !== false;
+  }
+
+  _useMobileCards() {
+    return this._isMobile && this._config?.mobile_layout !== "table";
   }
 
   _fixedFilters() {
@@ -542,7 +547,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (!this.shadowRoot || this._shellRendered) return;
     this.shadowRoot.innerHTML = `
       <ha-card>
-        <div class="wrap">
+        <div class="wrap ${this._config.mobile_layout === "table" ? "mobile-table-layout" : ""}">
           <div class="toolbar" ${this._config.show_toolbar === false ? "hidden" : ""}>
             <input id="search" type="search" placeholder="${this._escape(this._searchPlaceholder())}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
             ${this._filterControlsHtml()}
@@ -694,6 +699,9 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .options { position: static; }
         .table-wrap { display: none; }
         .mobile-list { display: block; }
+        .mobile-table-layout .mobile-sort { display: none; }
+        .mobile-table-layout .table-wrap { display: block; }
+        .mobile-table-layout .mobile-list { display: none; }
       }
     </style>`;
   }
@@ -771,7 +779,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const columns = this._activeColumns();
     const desktopRows = this.shadowRoot.getElementById("rows");
     const mobileRows = this.shadowRoot.getElementById("mobile-rows");
-    if (this._isMobile) {
+    if (this._useMobileCards()) {
       desktopRows.innerHTML = "";
       mobileRows.innerHTML = rows.length
         ? rows.map((row, index) => this._mobileRow(row, index, defs, columns)).join("")

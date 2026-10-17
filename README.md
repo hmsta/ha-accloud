@@ -83,7 +83,9 @@ columns:
   - name
   - status
 mobile_columns:
+  - name
   - status
+mobile_layout: table
 show_toolbar: false
 show_table_header: false
 show_details: false
@@ -99,6 +101,10 @@ remember_preferences: false
 them with every server-side request. Fixed filters are not shown in the toolbar
 and cannot be removed by **Clear**. A page size of `0` requests all matching
 rows.
+
+Set `mobile_layout: table` to keep normal table rows on narrow screens. The
+table uses `mobile_columns` while the viewport is mobile; the default remains
+the card layout used by the full inventory views.
 
 If you have more than one AccCloud integration entry, set `entry_id` explicitly:
 
