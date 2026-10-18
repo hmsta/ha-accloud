@@ -130,6 +130,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ["remark", "Remark"],
       ["room", "Room", (row, index) => this._roomButton(row, index)],
       ["device", "Device"],
+      ["ip", "IP"],
       ["firmware", "FW"],
       ["capacity", "BTU"],
       ["status", "Status", (row) => this._cellHtml(row, "online"), (row) => this._cellValue(row, "online")],
