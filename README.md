@@ -84,6 +84,7 @@ location/room name and status:
 type: custom:accloud-devices-table-card
 fixed_filters:
   status: offline
+min_offline_minutes: 15
 columns:
   - name
   - status
@@ -106,6 +107,11 @@ remember_preferences: false
 them with every server-side request. Fixed filters are not shown in the toolbar
 and cannot be removed by **Clear**. A page size of `0` requests all matching
 rows.
+
+Set `min_offline_minutes` to hide ACs until they have remained continuously
+offline for that long. The filtering happens on the server before pagination
+and applies only while the card's status filter is **Offline**. The default is
+`0` (disabled); decimal values are supported, so `0.5` means 30 seconds.
 
 Set `mobile_layout: table` to keep normal table rows on narrow screens. The
 table uses `mobile_columns` while the viewport is mobile; the default remains

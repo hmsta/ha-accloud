@@ -56,6 +56,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       refresh_interval_ms: 60000,
       search_debounce_ms: 150,
       fixed_filters: {},
+      min_offline_minutes: 0,
       show_toolbar: true,
       show_table_header: true,
       show_details: true,
@@ -1366,7 +1367,18 @@ class AccCloudDevicesTableCard extends HTMLElement {
       const value = this._filters[def.key];
       if (value) filters[def.param || def.key] = value;
     }
+    const offlineOnly = filters.status === "offline" || filters.filter === "offline";
+    const minimumOfflineSeconds = this._minimumOfflineSeconds();
+    if (this._responseKey() === "devices" && offlineOnly && minimumOfflineSeconds > 0) {
+      filters.min_offline_seconds = String(minimumOfflineSeconds);
+    }
     return filters;
+  }
+
+  _minimumOfflineSeconds() {
+    const minutes = Number(this._config?.min_offline_minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+    return Math.min(30 * 24 * 60 * 60, Math.ceil(minutes * 60));
   }
 
   _navigationFilterParams() {
