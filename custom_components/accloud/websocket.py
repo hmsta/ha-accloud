@@ -238,7 +238,8 @@ async def websocket_set_device_state(
         connection.send_error(msg["id"], "invalid_auth", "AccCloud token rejected")
         return
     except UnexpectedResponse as err:
-        connection.send_error(msg["id"], "request_failed", str(err))
+        code = str(err.payload.get("code") or "request_failed")
+        connection.send_error(msg["id"], code, str(err))
         return
     except Exception as err:
         connection.send_error(msg["id"], "unknown_error", str(err))

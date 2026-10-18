@@ -21,6 +21,18 @@ class AuthenticationError(AccCloudError):
 class UnexpectedResponse(AccCloudError):
     """AccCloud returned an unexpected response."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize an unexpected response with optional structured details."""
+        super().__init__(message)
+        self.status = status
+        self.payload = payload or {}
+
 
 class AccCloudClient:
     """Small bearer-token client for AccCloud JSON endpoints."""
@@ -209,10 +221,7 @@ class AccCloudClient:
                 if response.status in {401, 403}:
                     raise AuthenticationError("AccCloud rejected the bearer token")
                 if response.status != 200:
-                    text = await response.text(errors="replace")
-                    raise UnexpectedResponse(
-                        f"AccCloud HTTP {response.status}: {text[:200]}"
-                    )
+                    raise await self._unexpected_response(response)
                 payload = await response.json(content_type=None)
         except TimeoutError as err:
             raise UnexpectedResponse("AccCloud request timed out") from err
@@ -260,10 +269,7 @@ class AccCloudClient:
                 if response.status in {401, 403}:
                     raise AuthenticationError("AccCloud rejected the bearer token")
                 if response.status != 200:
-                    text = await response.text(errors="replace")
-                    raise UnexpectedResponse(
-                        f"AccCloud HTTP {response.status}: {text[:200]}"
-                    )
+                    raise await self._unexpected_response(response)
                 response_payload = await response.json(content_type=None)
         except TimeoutError as err:
             raise UnexpectedResponse("AccCloud request timed out") from err
@@ -272,6 +278,26 @@ class AccCloudClient:
         if not isinstance(response_payload, dict):
             raise UnexpectedResponse("AccCloud returned non-object JSON")
         return response_payload
+
+    async def _unexpected_response(
+        self,
+        response: aiohttp.ClientResponse,
+    ) -> UnexpectedResponse:
+        """Build an error while preserving structured API details when present."""
+        error_payload: dict[str, Any] = {}
+        try:
+            decoded = await response.json(content_type=None)
+            if isinstance(decoded, dict):
+                error_payload = decoded
+        except (aiohttp.ClientError, ValueError):
+            pass
+        text = await response.text(errors="replace")
+        message = str(error_payload.get("error") or text[:200])
+        return UnexpectedResponse(
+            message,
+            status=response.status,
+            payload=error_payload,
+        )
 
     def _table_params(
         self,

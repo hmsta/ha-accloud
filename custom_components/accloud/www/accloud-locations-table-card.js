@@ -297,10 +297,12 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
       const failed = Number(result?.failed || 0);
       const skipped = Number(result?.skipped || 0);
       const total = Number(result?.total || 0);
-      message.className = `control-message ${result?.ok === false || failed ? "is-error" : "is-ok"}`;
-      message.textContent = total
+      const faultSummary = this._locationFaultSummary(result);
+      message.className = `control-message ${result?.ok === false || failed || faultSummary ? "is-error" : "is-ok"}`;
+      const summary = total
         ? `Applied to ${succeeded}/${total}. ${skipped} skipped, ${failed} failed.`
         : "No ACs assigned to this location.";
+      message.textContent = `${summary}${faultSummary ? ` ${faultSummary}` : ""}`;
       this._scheduleFetch(true);
     } catch (err) {
       message.className = "control-message is-error";
@@ -308,6 +310,21 @@ class AccCloudLocationsTableCard extends AccCloudBaseTableCard {
     } finally {
       button.disabled = false;
     }
+  }
+
+  _locationFaultSummary(result) {
+    const blocked = Array.isArray(result?.results)
+      ? result.results.filter((item) => item?.code === "fault_blocks_power_on")
+      : [];
+    if (!blocked.length) return "";
+    const labels = blocked.slice(0, 3).map((item) => {
+      const room = String(item?.room || item?.deviceId || "AC").trim();
+      const code = String(item?.fault?.code || "").trim();
+      return code ? `${room} (${code})` : room;
+    });
+    const remaining = blocked.length - labels.length;
+    const details = `${labels.join(", ")}${remaining > 0 ? `, +${remaining} more` : ""}`;
+    return `${blocked.length} blocked by ${blocked.length === 1 ? "an active fault" : "active faults"}: ${details}.`;
   }
 }
 

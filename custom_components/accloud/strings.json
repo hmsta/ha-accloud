@@ -39,6 +39,9 @@
       "on_acs": {
         "name": "On ACs"
       },
+      "active_faults": {
+        "name": "Active faults"
+      },
       "estimated_power": {
         "name": "Estimated power"
       },

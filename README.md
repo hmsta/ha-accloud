@@ -13,7 +13,8 @@ The integration creates one AccCloud device with summary entities for monitoring
 and Home Assistant history:
 
 - `binary_sensor`: connected
-- `sensor`: total ACs, online ACs, offline ACs, on ACs, estimated power, energy today
+- `sensor`: total ACs, online ACs, offline ACs, on ACs, active faults,
+  estimated power, energy today
 
 ## Installation with HACS
 

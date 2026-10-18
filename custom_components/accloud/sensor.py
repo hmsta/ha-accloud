@@ -106,6 +106,14 @@ SENSOR_DESCRIPTIONS: tuple[AccCloudSensorEntityDescription, ...] = (
         value_fn=lambda data: _int_from_section(data, "devices", "on"),
     ),
     AccCloudSensorEntityDescription(
+        key="active_faults",
+        translation_key="active_faults",
+        icon="mdi:alert-circle",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda data: _int_from_section(data, "devices", "activeFaults"),
+    ),
+    AccCloudSensorEntityDescription(
         key="estimated_power",
         translation_key="estimated_power",
         device_class=SensorDeviceClass.POWER,

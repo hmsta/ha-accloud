@@ -136,6 +136,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ["status", "Status", (row) => this._cellHtml(row, "online"), (row) => this._cellValue(row, "online")],
       ["online", "Online"],
       ["power", "Power"],
+      ["fault", "Fault"],
       ["est_watts", "Est. W"],
       ["mode", "Mode"],
       ["set_temp", "Set Temp"],
@@ -157,7 +158,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _defaultColumns() {
-    return ["location", "room", "online", "power", "est_watts", "mode", "set_temp", "room_temp", "last_action", "details"];
+    return ["location", "room", "online", "power", "fault", "est_watts", "mode", "set_temp", "room_temp", "last_action", "details"];
   }
 
   _defaultMobileColumns() {
@@ -197,7 +198,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       { key: "location", label: "Location", optionsKey: "locations", param: "location_id" },
       { key: "status", label: "Status", values: ["online", "offline"], param: "status" },
       { key: "power", label: "Power", values: ["on", "off"], param: "power" },
-      { key: "filter", label: "Issue", values: ["schedule-warning", "model-warning", "old-firmware"], optionsKey: "issues", param: "filter" },
+      { key: "filter", label: "Issue", values: ["active-fault", "schedule-warning", "model-warning", "old-firmware"], optionsKey: "issues", param: "filter" },
     ];
   }
 
@@ -206,6 +207,17 @@ class AccCloudDevicesTableCard extends HTMLElement {
     const room = this._cellText(row, "room");
     const labels = location && room && location.toLowerCase() === room.toLowerCase() ? [location] : [location, room].filter(Boolean);
     return labels.join(" - ") || this._cellText(row, "device") || "Device";
+  }
+
+  _fault(row) {
+    const fault = row?.fault;
+    if (!fault || typeof fault !== "object" || !String(fault.code || "").trim()) return null;
+    return fault;
+  }
+
+  _hasActiveFault(row) {
+    const fault = this._fault(row);
+    return Boolean(row?.faultActive || String(fault?.status || "").toLowerCase() === "active");
   }
 
   _activeColumns() {
@@ -328,13 +340,14 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _preferenceVersion() {
-    return 4;
+    return 5;
   }
 
   _migrateColumns(columns, version, defaults) {
     let migrated = columns;
     if (version < 2) migrated = this._withNewDefaultColumns(migrated, defaults, ["est_watts"]);
     if (version < 3) migrated = this._withNewDefaultColumns(migrated, defaults, ["last_action", "last_activity"]);
+    if (version < 5) migrated = this._withNewDefaultColumns(migrated, defaults, ["fault"]);
     return migrated;
   }
 
@@ -687,6 +700,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       .mobile-list { display: none; }
       .mobile-row { border-bottom: 1px solid var(--divider-color); display: grid; gap: 5px; padding: 10px 0; }
       .mobile-main { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+      .mobile-title { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
       .mobile-fields { display: grid; gap: 4px 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .mobile-field { min-width: 0; }
       .mobile-label { color: var(--secondary-text-color); display: block; font-size: 11px; }
@@ -816,7 +830,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
     return `
       <div class="mobile-row">
         <div class="mobile-main">
-          ${mainHtml}
+          <div class="mobile-title">
+            ${mainHtml}
+            ${this._hasActiveFault(row) ? this._cellHtml(row, "fault") : ""}
+          </div>
           ${this._showDetailsColumn() ? this._detailsButton(index) : ""}
         </div>
         <div class="mobile-fields">
@@ -894,6 +911,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
       on: "On",
       off: "Off",
       "power-on": "Power on",
+      "active-fault": "Active fault",
       "schedule-warning": "Schedule warning",
       "model-warning": "Model warning",
       "old-firmware": "Old firmware",
@@ -916,10 +934,11 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _showDetails(row) {
     if (!row) return;
-    const body = this._columnDefs()
+    const columns = this._columnDefs()
       .filter((col) => !this._hiddenDetailsColumns().has(col.key))
       .map((col) => `<div>${this._escape(col.label)}</div><div>${this._detailsCellHtml(row, col)}</div>`)
       .join("");
+    const body = `${columns}${this._faultDetailsRowsHtml(row)}`;
     this._showDialog(this._rowTitle(row) || "Details", `<div class="details">${body}</div>`);
     this._hydrateTimeToggles(this._activeDialog);
     this._hydrateActivityLinks(this._activeDialog);
@@ -953,7 +972,40 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   _detailsCellHtml(row, col) {
+    if (col.key === "fault") return this._faultCellHtml(row);
     return col.key === "room" ? this._cellHtml(row, "room") : col.render(row);
+  }
+
+  _faultCellHtml(row) {
+    const fault = this._fault(row);
+    if (!fault) return this._cellHtml(row, "fault");
+    if (this._hasActiveFault(row) && this._cell(row, "fault")) return this._cellHtml(row, "fault");
+    const code = String(fault.code || "").trim();
+    const label = String(fault.label || "Unknown AC fault").trim();
+    const status = String(fault.status || "").toLowerCase();
+    const suffix = status === "cleared" ? " · cleared" : status ? ` · ${status}` : "";
+    return `<span class="pill ${status === "cleared" ? "light" : "warn"}">${this._escape(`${code} · ${label}${suffix}`)}</span>`;
+  }
+
+  _faultDetailsRowsHtml(row) {
+    const fault = this._fault(row);
+    if (!fault) return "";
+    const status = String(fault.status || "unknown").trim().toLowerCase();
+    const statusLabel = status ? `${status.charAt(0).toUpperCase()}${status.slice(1)}` : "Unknown";
+    const rows = [["Fault status", this._escape(statusLabel)]];
+    if (fault.firstReportedAt) rows.push(["First reported", this._faultTimeHtml(fault.firstReportedAt)]);
+    if (fault.lastReportedAt) rows.push(["Last reported", this._faultTimeHtml(fault.lastReportedAt)]);
+    if (fault.clearedAt) rows.push(["Cleared", this._faultTimeHtml(fault.clearedAt)]);
+    if (status === "active") {
+      rows.push(["Power on", fault.blocksPowerOn ? `<span class="pill bad">Blocked</span>` : this._escape("Allowed")]);
+    }
+    return rows.map(([label, value]) => `<div>${this._escape(label)}</div><div>${value}</div>`).join("");
+  }
+
+  _faultTimeHtml(value) {
+    const date = new Date(String(value || ""));
+    if (Number.isNaN(date.getTime())) return this._escape(value || "--");
+    return `<time datetime="${this._escape(date.toISOString())}" title="${this._escape(date.toISOString())}">${this._escape(date.toLocaleString())}</time>`;
   }
 
   _showRowControl(row) {
@@ -963,6 +1015,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   _controlFormHtml(state, options = {}) {
     const draft = this._controlDraft(state);
     const selfCleaning = String(state?.operatingState || "").toLowerCase() === "self_cleaning";
+    const fault = this._hasActiveFault(state) ? this._fault(state) : null;
     const status = selfCleaning
       ? ""
       : [
@@ -971,7 +1024,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
           state.targetTempLabel ? `${state.targetTempLabel}` : "",
         ].filter(Boolean).join(" - ");
     return `
-      <form class="control-form" data-control-form data-self-cleaning="${selfCleaning ? "true" : "false"}">
+      <form class="control-form" data-control-form data-self-cleaning="${selfCleaning ? "true" : "false"}" data-fault-blocks-power-on="${fault?.blocksPowerOn ? "true" : "false"}">
+        ${this._controlFaultHtml(fault)}
         <div class="control-status">
           <div class="control-heading">
             <strong>${this._escape(state.roomTempLabel || "Room --")}</strong>
@@ -1032,11 +1086,15 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _syncControlForm(form) {
     const powered = form.elements.power.value === "on";
+    const faultBlocksPowerOn = form.dataset.faultBlocksPowerOn === "true";
     const mode = form.elements.mode.value;
     const controlGrid = form.querySelector("[data-control-grid]");
     if (controlGrid) controlGrid.hidden = form.dataset.selfCleaning === "true" && !powered;
     for (const button of form.querySelectorAll("[data-power-option]")) {
       const selected = button.dataset.powerOption === form.elements.power.value;
+      button.disabled = button.dataset.powerOption === "on" && faultBlocksPowerOn;
+      if (button.disabled) button.title = "Power-on blocked by active AC fault";
+      else button.removeAttribute("title");
       button.classList.toggle("selected", selected);
       button.setAttribute("aria-pressed", selected ? "true" : "false");
     }
@@ -1067,6 +1125,21 @@ class AccCloudDevicesTableCard extends HTMLElement {
       }
     }
     if (timerField) timerField.classList.toggle("muted", !powered && form.elements.offTimerMinutes?.value !== "0");
+  }
+
+  _controlFaultHtml(fault) {
+    if (!fault) return "";
+    const code = String(fault.code || "").trim();
+    const label = String(fault.label || "Unknown AC fault").trim();
+    const blocks = Boolean(fault.blocksPowerOn);
+    const help = blocks
+      ? "Power-on is blocked while this fault is active."
+      : "The AC reported a fault; controls remain available.";
+    return `
+      <div class="control-fault ${blocks ? "is-blocking" : "is-warning"}">
+        <strong>${this._escape(`AC fault ${code} · ${label}`)}</strong>
+        <span>${this._escape(help)}</span>
+      </div>`;
   }
 
   async _applyControlState(row, form) {
@@ -1378,6 +1451,10 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .dialog-actions { margin-top: 10px; }
         .menu-button { width: 100%; }
         .control-form { display: grid; gap: 12px; }
+        .control-fault { background: rgba(210, 153, 34, 0.10); border: 1px solid #d29922; border-radius: 8px; display: grid; gap: 3px; padding: 9px 10px; }
+        .control-fault.is-blocking { background: rgba(207, 34, 46, 0.09); border-color: var(--error-color, #cf222e); }
+        .control-fault strong { font-size: 13px; line-height: 1.3; }
+        .control-fault span { color: var(--secondary-text-color, #666); font-size: 12px; line-height: 1.35; }
         .control-status { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
         .control-heading { display: grid; gap: 2px; min-width: 0; }
         .control-status strong { font-size: 18px; font-weight: 600; line-height: 1.2; }
@@ -1395,6 +1472,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         .control-power button { background: transparent; border: 0; border-radius: 7px; color: var(--primary-text-color, #111); cursor: pointer; font: inherit; font-weight: 600; min-height: 32px; padding: 0 12px; }
         .control-power button:hover, .control-power button:focus-visible { background: rgba(127, 127, 127, 0.12); outline: none; }
         .control-power button.selected { background: var(--primary-color, #2196f3); box-shadow: 0 2px 8px rgba(0,0,0,0.18); color: var(--text-primary-color, #fff); }
+        .control-power button:disabled { cursor: not-allowed; opacity: .45; }
         .control-actions { align-items: center; border-top: 1px solid var(--divider-color, #ddd); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 10px; }
         .control-message { color: var(--secondary-text-color, #666); flex: 1 1 auto; font-size: 12px; line-height: 1.3; min-width: 180px; }
         .control-message.is-error { color: #cf222e; }
