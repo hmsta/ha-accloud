@@ -561,7 +561,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
         { type: "accloud/subscribe_updates", entry_id: entryId },
       );
       if (!this.isConnected || subscriptionGeneration !== this._liveSubscriptionGeneration || (this._config.entry_id || this._resolvedEntryId) !== entryId) {
-        unsubscribe();
+        this._releaseLiveSubscription(unsubscribe);
         return;
       }
       this._liveUnsubscribe = unsubscribe;
@@ -577,9 +577,21 @@ class AccCloudDevicesTableCard extends HTMLElement {
 
   _unsubscribeLiveUpdates() {
     this._liveSubscriptionGeneration += 1;
-    if (this._liveUnsubscribe) this._liveUnsubscribe();
+    this._releaseLiveSubscription(this._liveUnsubscribe);
     this._liveUnsubscribe = null;
     this._liveSubscriptionEntryId = "";
+  }
+
+  _releaseLiveSubscription(unsubscribe) {
+    if (typeof unsubscribe !== "function") return;
+    try {
+      const pending = unsubscribe();
+      if (pending && typeof pending.catch === "function") {
+        pending.catch((err) => console.debug("AccCloud live update unsubscribe failed", err));
+      }
+    } catch (err) {
+      console.debug("AccCloud live update unsubscribe failed", err);
+    }
   }
 
   _handleLiveUpdate(event) {
@@ -906,12 +918,15 @@ class AccCloudDevicesTableCard extends HTMLElement {
       ? this._rowControlButton(row, index, main, "mobile-room-control")
       : `<strong>${this._escape(main)}</strong>`;
     const fields = columns.filter((key) => key !== "details");
+    const titleFault = this._hasActiveFault(row) && !fields.includes("fault")
+      ? this._cellHtml(row, "fault")
+      : "";
     return `
       <div class="mobile-row">
         <div class="mobile-main">
           <div class="mobile-title">
             ${mainHtml}
-            ${this._hasActiveFault(row) ? this._cellHtml(row, "fault") : ""}
+            ${titleFault}
           </div>
           ${this._showDetailsColumn() ? this._detailsButton(index) : ""}
         </div>
