@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import aiohttp
 
@@ -199,6 +200,61 @@ class AccCloudClient:
         if payload.get("ok") is False:
             raise UnexpectedResponse("AccCloud summary endpoint returned ok=false")
         return payload
+
+    async def async_event_messages(
+        self,
+        session: aiohttp.ClientSession,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield authenticated AccCloud change-stream messages."""
+        parts = urlsplit(f"{self.base_url}/api/homeassistant/events")
+        scheme = "wss" if parts.scheme == "https" else "ws"
+        url = urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment))
+        try:
+            async with session.ws_connect(
+                url,
+                headers={"Authorization": f"Bearer {self.token}"},
+                heartbeat=30,
+                receive_timeout=90,
+                timeout=self.timeout,
+            ) as websocket:
+                async for message in websocket:
+                    if message.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            payload = message.json()
+                        except ValueError as err:
+                            raise UnexpectedResponse(
+                                "AccCloud event stream returned invalid JSON"
+                            ) from err
+                        if not isinstance(payload, dict):
+                            raise UnexpectedResponse(
+                                "AccCloud event stream returned non-object JSON"
+                            )
+                        yield payload
+                    elif message.type == aiohttp.WSMsgType.ERROR:
+                        raise UnexpectedResponse(
+                            f"AccCloud event stream failed: {websocket.exception()}"
+                        )
+                    elif message.type in {
+                        aiohttp.WSMsgType.CLOSE,
+                        aiohttp.WSMsgType.CLOSED,
+                        aiohttp.WSMsgType.CLOSING,
+                    }:
+                        break
+        except aiohttp.WSServerHandshakeError as err:
+            if err.status in {401, 403}:
+                raise AuthenticationError(
+                    "AccCloud rejected the bearer token"
+                ) from err
+            raise UnexpectedResponse(
+                f"AccCloud event stream handshake failed: HTTP {err.status}"
+            ) from err
+        except (TimeoutError, aiohttp.ServerTimeoutError) as err:
+            raise UnexpectedResponse("AccCloud event stream timed out") from err
+        except aiohttp.ClientError as err:
+            raise UnexpectedResponse(
+                f"AccCloud event stream failed: {err}"
+            ) from err
+        raise UnexpectedResponse("AccCloud event stream closed")
 
     async def _async_get_json(
         self,

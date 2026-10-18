@@ -7,16 +7,18 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import AuthenticationError, UnexpectedResponse
-from .const import DATA_CLIENT, DOMAIN
+from .const import DATA_CLIENT, DATA_EVENT_STREAM, DOMAIN
+from .stream import AccCloudEventStream
 
 
 def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register AccCloud websocket commands."""
     websocket_api.async_register_command(hass, websocket_get_entries)
+    websocket_api.async_register_command(hass, websocket_subscribe_updates)
     websocket_api.async_register_command(hass, websocket_get_devices)
     websocket_api.async_register_command(hass, websocket_get_device_state)
     websocket_api.async_register_command(hass, websocket_get_device_activity)
@@ -48,6 +50,41 @@ async def websocket_get_entries(
         if entry.entry_id in hass.data.get(DOMAIN, {})
     ]
     connection.send_result(msg["id"], {"entries": entries})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "accloud/subscribe_updates",
+        vol.Required("entry_id"): str,
+    }
+)
+@callback
+def websocket_subscribe_updates(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Subscribe one card connection to backend invalidations."""
+    entry_data = hass.data.get(DOMAIN, {}).get(msg["entry_id"])
+    stream = (
+        entry_data.get(DATA_EVENT_STREAM)
+        if isinstance(entry_data, dict)
+        else None
+    )
+    if not isinstance(stream, AccCloudEventStream):
+        connection.send_error(
+            msg["id"], "not_found", "Unknown AccCloud config entry"
+        )
+        return
+
+    @callback
+    def forward_event(event: dict[str, Any]) -> None:
+        connection.send_event(msg["id"], event)
+
+    connection.subscriptions[msg["id"]] = stream.async_subscribe_updates(
+        forward_event
+    )
+    connection.send_result(msg["id"])
 
 
 @websocket_api.websocket_command(

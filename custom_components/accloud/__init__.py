@@ -21,6 +21,7 @@ from .const import (
     CONF_TOKEN,
     DATA_CLIENT,
     DATA_COORDINATOR,
+    DATA_EVENT_STREAM,
     DEVICES_CARD_FILENAME,
     DEVICES_CARD_URL,
     DOMAIN,
@@ -29,6 +30,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import AccCloudSummaryCoordinator
+from .stream import AccCloudEventStream
 from .websocket import async_setup_websocket
 
 _LOGGER = logging.getLogger(__name__)
@@ -142,12 +144,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_TOKEN],
     )
     coordinator = AccCloudSummaryCoordinator(hass, entry, client)
+    event_stream = AccCloudEventStream(hass, entry, client, coordinator)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         DATA_CLIENT: client,
         DATA_COORDINATOR: coordinator,
+        DATA_EVENT_STREAM: event_stream,
     }
     await coordinator.async_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await event_stream.async_start()
     return True
 
 
@@ -155,5 +160,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an AccCloud config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        await hass.data[DOMAIN][entry.entry_id][DATA_EVENT_STREAM].async_stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unload_ok

@@ -23,6 +23,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._fetchInFlight = false;
     this._fetchQueued = false;
     this._refreshTimer = null;
+    this._pollTimer = null;
+    this._liveRefreshTimer = null;
+    this._lastLiveRefresh = 0;
+    this._liveUnsubscribe = null;
+    this._liveSubscriptionPending = null;
+    this._liveSubscriptionEntryId = "";
+    this._liveSubscriptionGeneration = 0;
     this._shellRendered = false;
     this._isMobile = false;
     this._mediaQuery = null;
@@ -37,6 +44,7 @@ class AccCloudDevicesTableCard extends HTMLElement {
   }
 
   setConfig(config) {
+    this._unsubscribeLiveUpdates();
     this._shellRendered = false;
     this._config = {
       page_size: 25,
@@ -74,6 +82,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._stageNavigationCommandFromUrl();
     this._renderShell();
     this._refreshTable();
+    this._restartPollTimer();
+    this._ensureLiveSubscription();
   }
 
   set hass(hass) {
@@ -82,6 +92,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
     if (firstUpdate || Date.now() - this._lastFetch >= this._autoRefreshMs()) {
       this._scheduleFetch(firstUpdate);
     }
+    if (firstUpdate) this._restartPollTimer();
+    this._ensureLiveSubscription();
   }
 
   getCardSize() {
@@ -103,6 +115,8 @@ class AccCloudDevicesTableCard extends HTMLElement {
       }
       this._scheduleFetch(true);
     }
+    this._restartPollTimer();
+    this._ensureLiveSubscription();
   }
 
   disconnectedCallback() {
@@ -111,8 +125,13 @@ class AccCloudDevicesTableCard extends HTMLElement {
     this._closeDialog();
     if (this._fetchTimer) window.clearTimeout(this._fetchTimer);
     if (this._refreshTimer) window.clearTimeout(this._refreshTimer);
+    if (this._pollTimer) window.clearTimeout(this._pollTimer);
+    if (this._liveRefreshTimer) window.clearTimeout(this._liveRefreshTimer);
     this._fetchTimer = null;
     this._refreshTimer = null;
+    this._pollTimer = null;
+    this._liveRefreshTimer = null;
+    this._unsubscribeLiveUpdates();
     this._fetchQueued = false;
     this._fetchGeneration += 1;
   }
@@ -513,6 +532,66 @@ class AccCloudDevicesTableCard extends HTMLElement {
   _autoRefreshMs() {
     const configured = Number(this._config?.refresh_interval_ms);
     return Number.isFinite(configured) && configured >= 10000 ? configured : 60000;
+  }
+
+  _restartPollTimer() {
+    if (this._pollTimer) window.clearTimeout(this._pollTimer);
+    this._pollTimer = null;
+    if (!this.isConnected || !this._config || !this._hass) return;
+    this._pollTimer = window.setTimeout(() => {
+      this._pollTimer = null;
+      this._scheduleFetch();
+      this._ensureLiveSubscription();
+      this._restartPollTimer();
+    }, this._autoRefreshMs());
+  }
+
+  _ensureLiveSubscription() {
+    if (!this.isConnected || !this._hass || !this._config || this._liveSubscriptionPending) return;
+    if (typeof this._hass.connection?.subscribeMessage !== "function") return;
+    const generation = this._liveSubscriptionGeneration;
+    const pending = (async () => {
+      const entryId = await this._entryId();
+      if (!entryId || !this.isConnected || !this._hass || generation !== this._liveSubscriptionGeneration) return;
+      if (this._liveUnsubscribe && this._liveSubscriptionEntryId === entryId) return;
+      this._unsubscribeLiveUpdates();
+      const subscriptionGeneration = this._liveSubscriptionGeneration;
+      const unsubscribe = await this._hass.connection.subscribeMessage(
+        (event) => this._handleLiveUpdate(event),
+        { type: "accloud/subscribe_updates", entry_id: entryId },
+      );
+      if (!this.isConnected || subscriptionGeneration !== this._liveSubscriptionGeneration || (this._config.entry_id || this._resolvedEntryId) !== entryId) {
+        unsubscribe();
+        return;
+      }
+      this._liveUnsubscribe = unsubscribe;
+      this._liveSubscriptionEntryId = entryId;
+    })();
+    this._liveSubscriptionPending = pending;
+    pending
+      .catch((err) => console.debug("AccCloud live updates unavailable; polling remains active", err))
+      .finally(() => {
+        if (this._liveSubscriptionPending === pending) this._liveSubscriptionPending = null;
+      });
+  }
+
+  _unsubscribeLiveUpdates() {
+    this._liveSubscriptionGeneration += 1;
+    if (this._liveUnsubscribe) this._liveUnsubscribe();
+    this._liveUnsubscribe = null;
+    this._liveSubscriptionEntryId = "";
+  }
+
+  _handleLiveUpdate(event) {
+    const scopes = Array.isArray(event?.scopes) ? event.scopes : [];
+    if (!scopes.includes(this._responseKey())) return;
+    if (this._liveRefreshTimer) return;
+    const wait = Math.max(0, 500 - (Date.now() - this._lastLiveRefresh));
+    this._liveRefreshTimer = window.setTimeout(() => {
+      this._liveRefreshTimer = null;
+      this._lastLiveRefresh = Date.now();
+      if (this.isConnected) this._scheduleFetch(true);
+    }, wait);
   }
 
   async _entryId() {

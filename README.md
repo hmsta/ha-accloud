@@ -16,6 +16,10 @@ and Home Assistant history:
 - `sensor`: total ACs, online ACs, offline ACs, on ACs, active faults,
   estimated power, energy today
 
+The integration keeps one authenticated WebSocket connection to AccCloud for
+live table invalidation and summary refreshes. Periodic polling remains enabled
+as a fallback if the stream is unavailable.
+
 ## Installation with HACS
 
 1. Add this repository as a HACS custom repository of type `Integration`.
